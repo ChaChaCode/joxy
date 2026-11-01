@@ -51,3 +51,18 @@ test('metadata survives encrypted-store serialization and scoped refresh replace
   assert.equal(data.sources[0].usage, null);
   await assert.rejects(controller.refreshSources('unknown'), /не найдена/);
 });
+
+test('network failures explain themselves instead of "fetch failed"', async () => {
+  const { subscriptionNetworkError: explain } = await import('../electron/network.mjs');
+  const failed = (code) => Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error(code), { code }) });
+  assert.match(explain(failed('ENOTFOUND'), 'sub.example.com'), /sub\.example\.com не найден: такого домена нет в DNS/);
+  assert.match(explain(failed('ECONNRESET'), 'h'), /сброшено.*блокировку/);
+  assert.match(explain(failed('UND_ERR_CONNECT_TIMEOUT'), 'h'), /не ответил за 12 секунд/);
+  assert.match(explain(Object.assign(new Error('aborted'), { name: 'TimeoutError' }), 'h'), /не ответил/);
+  assert.match(explain(failed('CERT_HAS_EXPIRED'), 'h'), /Сертификат/);
+  assert.match(explain(failed('EWHATEVER'), 'h'), /Не удалось загрузить подписку с h \(EWHATEVER\)/);
+});
+test('a domain that does not exist is reported as such by the real fetch', async () => {
+  const { fetchSubscription } = await import('../electron/network.mjs');
+  await assert.rejects(fetchSubscription('https://joxy-test.invalid/sub'), /joxy-test\.invalid не найден|DNS не ответил/);
+});

@@ -1,5 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
+import { isIP } from 'node:net';
+import { Resolver } from 'node:dns/promises';
 import path from 'node:path';
 import { access, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { subscriptionMetadata } from './subscription.mjs';
@@ -103,12 +105,37 @@ function alive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
+const certificateErrors = /^(CERT_|ERR_TLS_CERT|UNABLE_TO_VERIFY|DEPTH_ZERO_SELF_SIGNED|SELF_SIGNED_CERT)/;
+// fetch reports every network failure as "fetch failed"; the reason is in its cause, and it decides what to tell the user.
+export function subscriptionNetworkError(error, host) {
+  const code = error?.cause?.code || error?.code || '';
+  if (error?.name === 'TimeoutError' || error?.cause?.name === 'TimeoutError' || /TIMEDOUT|TIMEOUT/.test(code)) return `Сервер подписки ${host} не ответил за 12 секунд. Возможно, он недоступен или блокируется: попробуйте после подключения VPN.`;
+  if (code === 'ENOTFOUND') return `Сервер подписки ${host} не найден: такого домена нет в DNS. Проверьте ссылку или уточните её у провайдера.`;
+  if (code === 'EAI_AGAIN') return `Не удалось узнать адрес ${host}: DNS не ответил. Проверьте подключение к интернету.`;
+  if (code === 'ECONNREFUSED') return `Сервер подписки ${host} отклонил соединение.`;
+  if (code === 'ECONNRESET' || code === 'UND_ERR_SOCKET' || code === 'EPIPE') return `Соединение с ${host} было сброшено. Похоже на блокировку: попробуйте после подключения VPN.`;
+  if (certificateErrors.test(code)) return `Сертификат сервера подписки ${host} не прошёл проверку. JOXY не загружает подписки по непроверенному HTTPS.`;
+  return `Не удалось загрузить подписку с ${host}${code ? ` (${code})` : ''}.`;
+}
+
+// Windows asks every adapter's DNS after a "no such domain", and DNS protection blocks the physical ones, so fetch
+// times out before it learns the domain does not exist. One direct question settles what to report.
+async function withDnsAnswer(error, host) {
+  const code = error?.cause?.code || error?.code || '';
+  if (code === 'ENOTFOUND' || isIP(host)) return error;
+  try { await new Resolver({ timeout: 3000, tries: 1 }).resolve4(host); return error; }
+  catch (e) { return e.code === 'ENOTFOUND' || e.code === 'ENODATA' ? Object.assign(new Error('not found'), { code: 'ENOTFOUND' }) : error; }
+}
+
 export async function fetchSubscription(url) {
   let current;
   try { current = new URL(url); } catch { throw new Error('Не удалось прочитать адрес подписки.'); }
   for (let redirect = 0; redirect < 5; redirect++) {
     if (current.protocol !== 'https:' || current.username || current.password) throw new Error('Подписка должна использовать HTTPS без логина и пароля в адресе.');
-    const response = await fetch(current, { redirect: 'manual', signal: AbortSignal.timeout(12000), headers: { 'User-Agent': `JOXY/${version}` } });
+    // A definite "no such domain" is known in a tenth of a second; fetch would only report it after its timeout.
+    if (!isIP(current.hostname)) await new Resolver({ timeout: 3000, tries: 1 }).resolve4(current.hostname).catch((e) => { if (e.code === 'ENOTFOUND') throw new Error(subscriptionNetworkError(e, current.hostname)); });
+    const response = await fetch(current, { redirect: 'manual', signal: AbortSignal.timeout(12000), headers: { 'User-Agent': `JOXY/${version}` } })
+      .catch(async (e) => { throw new Error(subscriptionNetworkError(await withDnsAnswer(e, current.hostname), current.hostname)); });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       if (!response.headers.get('location')) throw new Error('Подписка вернула пустое перенаправление.');
       current = new URL(response.headers.get('location'), current); await response.body?.cancel(); continue;
