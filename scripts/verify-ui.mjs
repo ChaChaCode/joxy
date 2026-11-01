@@ -155,6 +155,14 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'Ссылка или конфигурация' }).getAttribute('aria-invalid'), 'true');
   await page.keyboard.press('Escape');
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  // Selecting text and releasing the mouse outside the sheet keeps it open; a real click on the backdrop closes it.
+  await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+  const field = await page.getByRole('textbox', { name: 'Ссылка или конфигурация' }).boundingBox();
+  await page.mouse.move(field.x + 20, field.y + 20); await page.mouse.down();
+  await page.mouse.move(20, 600, { steps: 8 }); await page.mouse.up();
+  assert.equal(await page.getByRole('dialog').count(), 1, 'Drag-select ending outside must not close the sheet');
+  await page.mouse.click(20, 600);
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
 
   // Privacy: addresses appear only on request and hide again on blur.
   await page.getByRole('button', { name: 'Приватность', exact: true }).click();

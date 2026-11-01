@@ -8,6 +8,15 @@ const obj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const text = (v, max = 512) => typeof v === 'string' && v.length <= max && !/[\x00-\x1f]/.test(v);
 const fail = (message) => { throw new Error(message); };
 
+// Every uTLS fingerprint name Xray 26.10.31 accepts (transport/internet/tls: Preset, Modern and Other fingerprints).
+const fingerprints = new Set(('chrome firefox safari ios android edge 360 qq random randomized randomizednoalpn unsafe '
+  + 'hellofirefox_120 hellofirefox_148 hellochrome_120 hellochrome_131 hellochrome_133 helloios_13 helloios_14 helloedge_106 hellosafari_26_3 hello360_11_0 helloqq_11_1 '
+  + 'hellogolang hellorandomized hellorandomizedalpn hellorandomizednoalpn hellofirefox_auto hellofirefox_55 hellofirefox_56 hellofirefox_63 hellofirefox_65 hellofirefox_99 '
+  + 'hellofirefox_102 hellofirefox_105 hellochrome_auto hellochrome_58 hellochrome_62 hellochrome_70 hellochrome_72 hellochrome_83 hellochrome_87 hellochrome_96 '
+  + 'hellochrome_100 hellochrome_102 hellochrome_106_shuffle helloios_auto helloios_11_1 helloios_12_1 helloandroid_11_okhttp helloedge_85 helloedge_auto hellosafari_16_0 '
+  + 'hellosafari_auto hello360_auto hello360_7_5 helloqq_auto hellochrome_100_psk hellochrome_112_psk_shuf hellochrome_114_padding_psk_shuf hellochrome_115_pq '
+  + 'hellochrome_115_pq_psk hellochrome_120_pq').split(' '));
+
 export function sanitizeFragment(value) {
   if (value == null || (obj(value) && !Object.keys(value).length)) return undefined;
   if (!obj(value) || !Array.isArray(value.tcp) || value.tcp.length !== 1 || value.tcp[0].type !== 'fragment') {
@@ -49,12 +58,13 @@ export function normalizeOutbound(raw, name = '') {
     const r = input.realitySettings;
     const password = r?.password ?? r?.publicKey;
     if (!obj(r) || !text(password, 64) || !/^[A-Za-z0-9_-]{43}$/.test(password)) return fail('Не найден корректный ключ REALITY.');
-    if (!text(r.serverName, 253) || !r.serverName) return fail('Для REALITY требуется SNI.');
+    // Without an SNI Xray presents the server address, as other clients do with such links.
+    if (r.serverName != null && !text(r.serverName, 253)) return fail('Некорректный SNI REALITY.');
     const shortId = r.shortId ?? '';
     if (!/^(?:[a-fA-F0-9]{2}){0,8}$/.test(shortId)) return fail('Некорректный short ID REALITY.');
-    const fingerprint = r.fingerprint || 'chrome';
-    if (!['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'random', 'randomized'].includes(fingerprint)) return fail('Неизвестный TLS fingerprint.');
-    stream.realitySettings = { serverName: r.serverName, password, shortId, fingerprint };
+    const fingerprint = String(r.fingerprint || 'chrome').toLowerCase();
+    if (!fingerprints.has(fingerprint)) return fail(`TLS fingerprint «${String(r.fingerprint).slice(0, 40)}» не поддерживается ядром Xray.`);
+    stream.realitySettings = { ...(r.serverName ? { serverName: r.serverName } : {}), password, shortId, fingerprint };
     if (r.mldsa65Verify) {
       if (!text(r.mldsa65Verify, 4096)) return fail('Некорректная подпись REALITY.');
       stream.realitySettings.mldsa65Verify = r.mldsa65Verify;
@@ -106,7 +116,7 @@ export function parseVless(link) {
     streamSettings: { network: q.get('type') || 'raw', security: q.get('security') || 'none' },
   };
   const s = input.streamSettings;
-  if (s.security === 'reality') s.realitySettings = { serverName: q.get('sni') || '', password: q.get('pbk') || '', shortId: q.get('sid') || '', fingerprint: q.get('fp') || 'chrome', ...(q.get('pqv') ? { mldsa65Verify: q.get('pqv') } : {}) };
+  if (s.security === 'reality') s.realitySettings = { serverName: q.get('sni') || '', password: q.get('pbk') || '', shortId: q.get('sid') || '', fingerprint: q.get('fp') || 'chrome', ...(q.get('pqv') ? { mldsa65Verify: q.get('pqv') } : {}), ...(q.get('spx') ? { spiderX: q.get('spx') } : {}) };
   if (s.security === 'tls') s.tlsSettings = { serverName: q.get('sni') || u.hostname, allowInsecure: q.get('allowInsecure') === '1' };
   if (s.network === 'xhttp') s.xhttpSettings = { path: q.get('path') || '/', mode: q.get('mode') || 'auto', host: q.get('host') || '' };
   if (s.network === 'grpc') s.grpcSettings = { serviceName: q.get('serviceName') || '', multiMode: q.get('mode') === 'multi', authority: q.get('authority') || '' };

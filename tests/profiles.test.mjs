@@ -68,3 +68,13 @@ test('reject disabled TLS verification and excessive input before execution', ()
   assert.throws(() => parseVless(link().replace('security=reality', 'security=tls&allowInsecure=1')), /сертификата/);
   assert.throws(() => parseSubscription('x'.repeat(2_000_001)), /большая/);
 });
+
+test('REALITY links without an SNI, with spiderX or with any Xray fingerprint are accepted', () => {
+  const base = 'vless://1b4e28ba-2fa1-41d2-883f-0016d3cca427@192.0.2.20:443?type=tcp&security=reality&pbk=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG&sid=ab12&flow=xtls-rprx-vision';
+  const [noSni] = parseSubscription(`${base}&fp=chrome&spx=%2F#no-sni`).profiles;
+  assert.ok(noSni, 'A link without sni is valid: Xray presents the address');
+  const reality = buildConfig(noSni, { http: 1, socks: 2 }).outbounds[0].streamSettings.realitySettings;
+  assert.equal(reality.serverName, undefined); assert.equal(reality.spiderX, '/');
+  for (const fp of ['qq', '360', 'randomizednoalpn', 'HelloChrome_131']) assert.equal(parseSubscription(`${base}&fp=${fp}#x`).profiles.length, 1, fp);
+  assert.throws(() => parseSubscription(`${base}&fp=nonsense#x`), /fingerprint «nonsense» не поддерживается/);
+});
