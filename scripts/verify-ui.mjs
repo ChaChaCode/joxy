@@ -55,6 +55,7 @@ try {
 
   // Home: auto selection, nothing private on screen.
   assert.equal((await page.locator('.picker-button').innerText()).trim(), 'Автовыбор');
+  assert.equal(await page.locator('.world-map').getAttribute('data-servers'), 'NL', 'Countries with servers stay marked without a selection');
   await page.getByRole('heading', { name: 'Готово к подключению' }).waitFor();
   assert.equal(await page.locator('.timer').innerText(), '--:--:--');
   assert.ok(!(await text()).includes('192.0.2.10'));

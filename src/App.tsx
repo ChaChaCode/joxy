@@ -88,6 +88,7 @@ export default function App() {
   const destination = shown || [...state.profiles].sort((a, b) => (a.transport === 'xhttp' ? 0 : 1) - (b.transport === 'xhttp' ? 0 : 1))[0];
   const iso = shown?.countryCode && /^[A-Z]{2}$/.test(shown.countryCode) ? shown.countryCode : null;
   const mode = state.connection.mode || state.settings.mode;
+  const serverCountries = [...new Set(state.profiles.map((p) => p.countryCode).filter((c): c is string => !!c && /^[A-Z]{2}$/.test(c)))].sort();
   const openImport = () => { setPickerOpen(false); setImportText(''); setImportError(''); setImportOpen(true); };
   const importSubmit = () => run('import', async () => {
     try {
@@ -151,7 +152,7 @@ export default function App() {
 
     {view === 'home' ? <>
       <main className={`stage is-${state.connection.phase}`}>
-        <WorldMap iso={iso} tone={connected ? 'connected' : shown ? 'selected' : 'idle'} focus={connected || connecting} />
+        <WorldMap iso={iso} tone={connected ? 'connected' : shown ? 'selected' : 'idle'} focus={connected || connecting} servers={serverCountries} />
         <div className="status" aria-live="polite">
           <h1>{connected && <span className="live-dot" />}{title}</h1>
           <div className="timer mono">{connected ? elapsed(state.connection.since, now) : '--:--:--'}</div>

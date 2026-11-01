@@ -175,5 +175,5 @@ main.stage { max-width: none; margin: 0; padding: 0 24px; overflow: hidden; flex
   .picker-menu { width: 360px; }
 }
 @media (prefers-contrast: more) {
-  :root { --dot: #8e8e94; --line: #8e8e94; --secondary: #3f3f44; }
+  :root { --dot: #8e8e94; --line: #8e8e94; --secondary: #3f3f44; --map-server: #2a2a2e; }
 }

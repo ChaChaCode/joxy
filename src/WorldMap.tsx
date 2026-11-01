@@ -31,7 +31,8 @@ function frame(iso: string): Camera | null {
 const rubber = (over: number, size: number) => (over * size * 0.55) / (size + 0.55 * Math.abs(over));
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export function WorldMap({ iso, tone, focus }: { iso: string | null; tone: Tone; focus: boolean }) {
+// servers: countries the user has servers in; they stay marked whatever is selected, so the map shows where one can go.
+export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | null; tone: Tone; focus: boolean; servers?: string[] }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const cam = useRef<Camera>(home());
   const vel = useRef<Camera>({ x: 0, y: 0, z: 0 });
@@ -40,8 +41,8 @@ export function WorldMap({ iso, tone, focus }: { iso: string | null; tone: Tone;
   const drag = useRef<{ id: number; x: number; y: number; history: { x: number; y: number; t: number }[] } | null>(null);
   const frameId = useRef(0);
   const [moved, setMoved] = useState(false);
-  const props = useRef({ iso, tone });
-  props.current = { iso, tone };
+  const props = useRef({ iso, tone, servers: new Set(servers) });
+  props.current = { iso, tone, servers: new Set(servers) };
 
   const scale = (w: number) => (w * BLEED / cols) * cam.current.z;
   const draw = useCallback(() => {
@@ -55,7 +56,7 @@ export function WorldMap({ iso, tone, focus }: { iso: string | null; tone: Tone;
     const style = getComputedStyle(el), k = scale(w), c = cam.current;
     const r = Math.min(Math.max(k * 0.29, 0.7), 7);
     const ax = w / 2, ay = h * ANCHOR_Y;
-    const { iso: chosen, tone: t } = props.current;
+    const { iso: chosen, tone: t, servers: available } = props.current;
     // Every frame is drawn at the real scale, so dots stay crisp while the camera moves.
     const paint = (points: Iterable<[number, number]>, color: string) => {
       ctx.fillStyle = color; ctx.beginPath();
@@ -66,8 +67,9 @@ export function WorldMap({ iso, tone, focus }: { iso: string | null; tone: Tone;
       }
       ctx.fill();
     };
-    for (const [code, points] of byCountry) if (code !== chosen) paint(points, style.getPropertyValue('--dot'));
-    if (chosen) paint(byCountry.get(chosen) || [], style.getPropertyValue(t === 'connected' ? '--green' : t === 'selected' ? '--text' : '--dot'));
+    const land = style.getPropertyValue('--dot'), server = style.getPropertyValue('--map-server');
+    for (const [code, points] of byCountry) if (code !== chosen) paint(points, available.has(code) ? server : land);
+    if (chosen) paint(byCountry.get(chosen) || [], t === 'connected' ? style.getPropertyValue('--green') : t === 'selected' ? style.getPropertyValue('--text') : available.has(chosen) ? server : land);
   }, []);
 
   // One loop drives springs and momentum; it stops itself when everything is at rest.
@@ -111,7 +113,7 @@ export function WorldMap({ iso, tone, focus }: { iso: string | null; tone: Tone;
   // Connecting flies to the country; disconnecting returns to the whole world.
   const destination = () => (focus && iso ? frame(iso) : null) || home();
   useEffect(() => { goTo(destination()); setMoved(false); }, [focus, iso]);
-  useEffect(() => { draw(); }, [tone, iso, draw]);
+  useEffect(() => { draw(); }, [tone, iso, servers.join(), draw]);
   useEffect(() => {
     const el = canvas.current!;
     const resize = new ResizeObserver(() => draw());
@@ -182,7 +184,7 @@ export function WorldMap({ iso, tone, focus }: { iso: string | null; tone: Tone;
   };
 
   return <>
-    <canvas ref={canvas} className="world-map" tabIndex={0} role="img" data-country={iso || ''} data-tone={tone}
+    <canvas ref={canvas} className="world-map" tabIndex={0} role="img" data-country={iso || ''} data-tone={tone} data-servers={servers.join(' ')}
       aria-label={`Карта мира${iso ? ', выбранная страна выделена' : ''}. Перетаскивание и стрелки перемещают, колесо и плюс-минус приближают, ноль возвращает.`}
       onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
       onDoubleClick={(e) => { const box = e.currentTarget.getBoundingClientRect(); zoomAt(2, e.clientX - box.left, e.clientY - box.top, true); }}
