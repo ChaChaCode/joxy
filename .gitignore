@@ -1,0 +1,12 @@
+node_modules/
+dist/
+release/
+release-*/
+resources/xray/
+resources/guard/
+artifacts/
+server/
+VERIFICATION.md
+*.log
+.env*
+!.env.example

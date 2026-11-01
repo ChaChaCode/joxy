@@ -1,0 +1,179 @@
+/* JOXY single-window layout: a quiet map, one status, one button. Loaded after styles.css. */
+body { background: var(--background); font-size: 13px; }
+.app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; user-select: none; }
+input, textarea, .log-line > span { user-select: text; }
+.mono { font-family: var(--font-mono); }
+
+/* Top bar: location on the left, settings and window controls on the right; the bar itself drags the window. */
+.topbar { display: flex; align-items: center; justify-content: space-between; height: 58px; padding: 0 8px 0 18px; -webkit-app-region: drag; flex-shrink: 0; }
+.topbar button, .picker-menu { -webkit-app-region: no-drag; }
+.topbar-right { display: flex; align-items: center; gap: 10px; height: 100%; }
+/* Window controls as two quiet dots; the glyphs and colour appear only when the pointer comes near. */
+.window-controls { display: flex; align-items: center; gap: 2px; padding: 0 10px 0 4px; height: 100%; }
+.window-controls button { width: 22px; height: 22px; padding: 4.5px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--dot); background-clip: content-box; color: transparent; transition: background-color 150ms var(--ease), color 150ms var(--ease), transform var(--spring-fast) var(--spring); }
+.window-controls button svg { width: 8px; height: 8px; }
+.window-controls:hover .window-min, .window-min:focus-visible { background-color: var(--tertiary); color: var(--background); }
+.window-controls:hover .window-close, .window-close:focus-visible { background-color: #ff5f57; color: #6e0b06; }
+.window-controls button:active { transform: scale(.88); transition: transform 60ms ease-out; }
+.window-controls .window-min:hover { background-color: var(--tertiary); background-clip: content-box; color: var(--background); }
+.window-controls .window-close:hover { background-color: #ff5f57; background-clip: content-box; color: #6e0b06; }
+.link-button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; background: transparent; color: var(--text); font-size: 13px; font-weight: 500; }
+.link-button:hover { background: var(--surface-hover); }
+
+/* Feedback on press, instantly; release springs back without overshoot. */
+.button, .link-button, .picker-button, .power, .picker-option, .settings-nav button, .segmented button {
+  transition: transform var(--spring-fast) var(--spring), background-color 120ms var(--ease), border-color 200ms var(--ease), color 200ms var(--ease);
+}
+.button:active:not(:disabled), .link-button:active, .picker-button:active, .picker-option:active, .settings-nav button:active { transform: scale(.97); transition: transform 60ms ease-out; }
+.button { border-radius: 8px; }
+.button.primary { background: var(--ink); color: var(--on-ink); }
+.button.primary:hover:not(:disabled) { background: var(--ink-hover); }
+.button.text { color: var(--text); }
+.button.text:hover:not(:disabled) { background: var(--surface-hover); }
+button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+/* Location picker: the menu grows out of its button. */
+.picker { position: relative; }
+.picker-button { display: inline-flex; align-items: center; gap: 9px; max-width: 420px; padding: 8px 10px; margin-left: -10px; border-radius: 9px; background: transparent; font-size: 14px; font-weight: 550; letter-spacing: -0.005em; }
+.picker-button:hover { background: var(--surface-hover); }
+.picker-button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-button .country-flag { width: 20px; height: 14px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px var(--line); }
+.picker-button svg.flipped { transform: rotate(180deg); }
+.picker-button svg { transition: transform var(--spring-fast) var(--spring); }
+.picker-menu {
+  position: absolute; top: calc(100% + 4px); left: -10px; z-index: 30; width: 400px; max-height: 420px; overflow: auto; padding: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-pop);
+  transform-origin: 30px 0; animation: grow var(--spring-fast) var(--spring) both;
+}
+@keyframes grow { from { opacity: 0; transform: scale(.94) translateY(-4px); } to { opacity: 1; transform: none; } }
+.picker-option { width: 100%; display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 9px; background: transparent; text-align: left; }
+.picker-option:hover, .picker-option:focus-visible { background: var(--surface-hover); }
+.picker-option .country-flag { width: 24px; height: 17px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px var(--line); flex-shrink: 0; }
+.picker-auto { width: 24px; height: 17px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 10px; font-weight: 600; background: var(--surface-hover); color: var(--secondary); box-shadow: 0 0 0 1px var(--line); flex-shrink: 0; }
+.picker-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.picker-text strong { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-text small { font-size: 11px; color: var(--secondary); margin-top: 1px; }
+.picker-latency { font-family: var(--font-mono); font-size: 11px; color: var(--secondary); white-space: nowrap; }
+.picker-latency.ok { color: var(--green); }
+.picker-latency.error { color: var(--danger); }
+.picker-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; padding: 6px 4px 2px; border-top: 1px solid var(--line); }
+
+/* Notices are quiet cards in the bottom-right corner; they never push the layout around. */
+.notices { position: fixed; right: 18px; bottom: 62px; z-index: 9; width: 330px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.notices:empty { display: none; }
+.card { pointer-events: auto; position: relative; display: flex; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-pop); font-size: 12px; animation: materialize var(--spring-fast) var(--spring) both; }
+.card > svg { flex-shrink: 0; margin-top: 1px; color: var(--secondary); }
+.card.warning > svg { color: var(--warning); }
+.card.danger > svg { color: var(--danger); }
+.card strong { display: block; font-size: 12.5px; font-weight: 600; padding-right: 14px; }
+.card p { margin-top: 2px; color: var(--secondary); line-height: 1.5; }
+.card-action { margin-top: 8px; padding: 0; background: none; color: var(--text); font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
+.card-action:hover:not(:disabled) { text-decoration-color: currentColor; }
+.card-close { position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: transparent; color: var(--tertiary); }
+.card-close:hover { background: var(--surface-hover); color: var(--text); }
+
+/* Stage: the map fills the space, the status sits under it. */
+main.stage { max-width: none; margin: 0; padding: 0 24px; overflow: hidden; flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; position: relative; }
+/* The map fills the stage edge to edge and slides under the status; drag, wheel and double-click move it. */
+.world-map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; outline: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent), linear-gradient(to bottom, transparent, #000 6%, #000 58%, transparent 80%); -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent), linear-gradient(to bottom, transparent, #000 6%, #000 58%, transparent 80%); mask-composite: intersect; }
+.world-map:active { cursor: grabbing; }
+.world-map:focus-visible { box-shadow: inset 0 0 0 2px var(--text); }
+.map-recenter { position: absolute; left: 24px; bottom: 26px; z-index: 2; padding: 6px 11px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-pop); font-size: 12px; font-weight: 500; animation: materialize var(--spring-fast) var(--spring) both; }
+.map-recenter:hover { background: var(--surface-hover); }
+
+.status { position: relative; z-index: 1; pointer-events: none; display: flex; flex-direction: column; align-items: center; padding-bottom: 26px; text-align: center; }
+.status > * { pointer-events: auto; }
+.status h1, .status .timer { pointer-events: none; }
+.status h1 { display: inline-flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; }
+.live-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px var(--green-soft); }
+.timer { margin-top: 8px; font-size: 16px; letter-spacing: .08em; color: var(--text); font-variant-numeric: tabular-nums; }
+.stage:not(.is-connected) .timer { color: var(--secondary); }
+.status .connection-error { margin: 10px 0 0; max-width: 520px; color: var(--danger); font-size: 12px; line-height: 1.5; user-select: text; }
+.power {
+  margin-top: 20px; width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--surface); color: var(--text); border: 2px solid var(--text);
+}
+.power:hover:not(:disabled) { background: var(--surface-hover); }
+.power:active:not(:disabled) { transform: scale(.95); transition: transform 60ms ease-out; }
+.power.on { color: var(--green); border-color: var(--green); }
+.power.on:hover:not(:disabled) { background: var(--green-soft); }
+.stage.is-connecting .power { color: var(--secondary); border-color: var(--line); }
+.add-first { margin-top: 20px; min-height: 40px; padding: 0 18px; }
+
+.statsbar { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 24px 18px; padding-top: 14px; border-top: 1px solid var(--line); flex-shrink: 0; }
+.statsbar > span { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
+.statsbar > span + span { border-left: 1px solid var(--line); }
+.statsbar svg { color: var(--secondary); }
+
+/* Settings */
+.settings { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 24px; }
+.settings-head { display: flex; align-items: center; gap: 10px; padding: 0 0 14px; margin-top: -10px; }
+.settings-head h1 { font-size: 19px; font-weight: 600; letter-spacing: -0.015em; }
+.back { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: transparent; color: var(--text); }
+.back svg { transform: rotate(90deg); }
+.back:hover { background: var(--surface-hover); }
+.settings-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 22px; padding-bottom: 18px; }
+.settings-nav { display: flex; flex-direction: column; gap: 3px; padding-right: 18px; border-right: 1px solid var(--line); }
+.settings-nav button { display: flex; align-items: center; gap: 11px; min-height: 40px; padding: 0 12px; border-radius: 9px; background: transparent; color: var(--text); font-size: 13px; text-align: left; }
+.settings-nav button:hover { background: var(--surface-hover); }
+.settings-nav button.on { background: var(--surface-hover); font-weight: 550; }
+.settings-panel { min-height: 0; overflow: auto; padding-right: 4px; animation: page-in 160ms ease-out; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.row-text h3 { font-size: 13.5px; font-weight: 500; }
+.row-text p { margin-top: 3px; font-size: 12px; line-height: 1.5; color: var(--secondary); }
+.row.is-disabled .row-text { opacity: .55; }
+.row-note { display: block; margin-top: 5px; font-size: 12px; color: var(--warning); }
+.inline-link { padding: 0; background: none; color: var(--text); font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.row-control { flex-shrink: 0; display: flex; align-items: center; }
+.row-control select { min-width: 160px; padding: 7px 28px 7px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 12.5px; cursor: pointer; }
+.row-value { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--green); }
+.toggle { width: 40px; min-width: 40px; height: 24px; background: var(--line); border: 0; }
+.toggle > span { width: 20px; height: 20px; transition: transform var(--spring-fast) var(--spring); }
+.toggle.on { background: var(--green); }
+.toggle.on > span { transform: translateX(16px); }
+.segmented { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--surface-hover); }
+.segmented button { min-width: 84px; padding: 6px 12px; border-radius: 8px; background: transparent; color: var(--secondary); font-size: 12.5px; font-weight: 500; }
+.segmented button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 1px var(--line); }
+.about { margin-top: 16px; font-size: 11px; color: var(--tertiary); }
+.hint { margin-top: 12px; font-size: 12px; color: var(--secondary); }
+.admin-note { margin-bottom: 6px; }
+.rules h3 { font-size: 13.5px; font-weight: 500; }
+.rules p { margin: 3px 0 12px; font-size: 12px; color: var(--secondary); line-height: 1.5; }
+.rules textarea { width: 100%; height: 180px; resize: vertical; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); font-family: var(--font-mono); font-size: 12px; line-height: 1.7; }
+.rules-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 12px; color: var(--secondary); }
+.section-actions { display: flex; align-items: center; gap: 6px; margin: 2px 0 12px; font-size: 12px; color: var(--secondary); }
+.section-actions > span { margin-right: auto; }
+.sub-server { display: flex; align-items: center; gap: 11px; padding: 11px 18px; border-top: 1px solid var(--line); }
+.sub-server .country-flag { width: 22px; height: 15px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px var(--line); }
+.sub-server > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sub-server strong { font-size: 13px; font-weight: 550; }
+.sub-server small { font-size: 11px; color: var(--secondary); }
+.sub-server em { font-style: normal; font-family: var(--font-mono); font-size: 11px; color: var(--secondary); }
+.sub-server em.ok { color: var(--green); }
+.sub-server em.error { color: var(--danger); }
+.diag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+.diag-grid > div { padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.diag-grid span { display: block; font-size: 11px; color: var(--secondary); }
+.diag-grid strong { display: block; margin-top: 4px; font-size: 13px; font-weight: 550; }
+.log { border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; max-height: 320px; overflow: auto; }
+.log .log-line { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.6; border-bottom: 1px solid var(--line); }
+.log .log-line:last-child { border: 0; }
+.log .log-line svg { flex-shrink: 0; margin-top: 3px; color: var(--green); }
+.log .log-line.warning svg { color: var(--warning); }
+.log .log-line.error svg { color: var(--danger); }
+.log .log-line time { color: var(--tertiary); }
+
+/* Sheets materialize: scale and blur arrive together from one spring; toasts sit centred now there is no sidebar. */
+.import-modal { border-radius: 18px; animation: materialize var(--spring-slow) var(--spring) both; }
+@keyframes materialize { from { opacity: 0; transform: scale(.94); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+.toast { left: 0; right: 0; margin: 0 auto; bottom: 12px; transform: none; border-radius: 12px; box-shadow: var(--shadow-pop); animation: materialize var(--spring-fast) var(--spring) both; }
+
+@media (max-width: 820px) {
+  .settings-body { grid-template-columns: 168px minmax(0, 1fr); gap: 16px; }
+  .picker-menu { width: 360px; }
+}
+@media (prefers-contrast: more) {
+  :root { --dot: #8e8e94; --line: #8e8e94; --secondary: #3f3f44; }
+}

@@ -1,0 +1,63 @@
+import { _electron as electron } from 'playwright';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+const temporary = await mkdtemp(path.join(os.tmpdir(), 'joxy-settings-desktop-'));
+const bootstrap = path.join(temporary, 'bootstrap.json');
+await writeFile(bootstrap, await readFile(process.env.JOXY_SUBSCRIPTION_FILE));
+const env = { ...process.env, JOXY_TEST_DATA: path.join(temporary, 'data') }; delete env.ELECTRON_RUN_AS_NODE;
+const executablePath = path.resolve('release-joxy-0.6.4/win-unpacked/JOXY.exe');
+let desktop;
+try {
+  desktop = await electron.launch({ executablePath, args: ['--bootstrap', bootstrap], env, timeout: 45000 });
+  let page = await desktop.firstWindow();
+  await page.getByRole('heading', { name: 'Подключение', exact: true }).waitFor();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  const initial = await page.evaluate(() => window.joxy.state());
+  assert.equal(initial.core.tunReady, true); assert.equal(initial.profiles.length, 3);
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByRole('button', { name: /^TUN TCP/ }).click();
+  if (!initial.environment.elevated) await page.getByText('Для TUN нужны права администратора', { exact: true }).waitFor();
+  await page.getByLabel('DNS-провайдер').selectOption('google');
+  await page.getByLabel('MTU', { exact: true }).selectOption('1280');
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await page.getByText('Изменения сохранены', { exact: true }).waitFor();
+  let state = await page.evaluate(() => window.joxy.state());
+  assert.equal(state.settings.mode, 'tun'); assert.equal(state.settings.systemProxy, false);
+  assert.equal(state.settings.dnsProvider, 'google'); assert.equal(state.settings.tunMtu, 1280);
+  if (state.environment.tunActive || !state.environment.elevated) {
+    const result = await page.evaluate(async () => { try { await window.joxy.connect(); return ''; } catch (e) { return e.message; } });
+    assert.match(result, /TUN другого VPN|прав.*администратор/);
+    assert.equal((await page.evaluate(() => window.joxy.state())).connection.phase, 'error');
+  }
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: 'artifacts/desktop-settings-tun.png', fullPage: true, animations: 'disabled' });
+  await page.getByRole('tab', { name: 'Маршрутизация', exact: true }).click();
+  await page.getByLabel('Домены и IP-подсети без VPN').fill('https://example.com');
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'Укажите домен' }).waitFor();
+  assert.deepEqual((await page.evaluate(() => window.joxy.state())).settings.directRules, []);
+  await page.getByLabel('Домены и IP-подсети без VPN').fill('*.example.com\n203.0.113.0/24');
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await page.getByText('Изменения сохранены', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Приложение', exact: true }).click();
+  await page.getByRole('switch', { name: 'Сворачивать в трей', exact: true }).click();
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await page.getByText('Изменения сохранены', { exact: true }).waitFor();
+  const closing = desktop.waitForEvent('close');
+  await page.getByRole('button', { name: 'Закрыть', exact: true }).click(); await closing; desktop = null;
+  desktop = await electron.launch({ executablePath, env, timeout: 45000 });
+  page = await desktop.firstWindow();
+  await page.getByRole('heading', { name: 'Подключение', exact: true }).waitFor();
+  state = await page.evaluate(() => window.joxy.state());
+  assert.equal(state.settings.mode, 'tun'); assert.equal(state.settings.tunMtu, 1280);
+  assert.equal(state.settings.closeToTray, false);
+  assert.deepEqual(state.settings.directRules, ['example.com', '203.0.113.0/24']);
+  assert.ok(!JSON.stringify(state).includes('outbound'));
+  assert.deepEqual(errors, []);
+  const closed = desktop.waitForEvent('close');
+  await page.getByRole('button', { name: 'Закрыть', exact: true }).click(); await closed; desktop = null;
+  console.log('Packaged settings verified: real IPC, validation, TUN permission/conflict guards, encrypted persistence across restart.');
+} finally { if (desktop) await desktop.close().catch(() => {}); await rm(temporary, { recursive: true, force: true }); }

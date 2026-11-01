@@ -1,0 +1,95 @@
+{
+  "cssUrl": "https://fonts.googleapis.com/css2?family=Golos+Text:wght@400..700&family=Geist+Mono:wght@400..500&display=swap",
+  "fonts": [
+    {
+      "file": "geist-mono-cyrillic-ext.woff2",
+      "family": "Geist Mono",
+      "weight": "400 500",
+      "subset": "cyrillic-ext",
+      "url": "https://fonts.gstatic.com/s/geistmono/v6/or3nQ6H-1_WfwkMZI_qYFrodmgPn.woff2",
+      "sha256": "cd8800999070b729e1cc0bf7a48da6c3ac096a044251171b9a7574b56d96d4b4",
+      "bytes": 6176
+    },
+    {
+      "file": "geist-mono-cyrillic.woff2",
+      "family": "Geist Mono",
+      "weight": "400 500",
+      "subset": "cyrillic",
+      "url": "https://fonts.gstatic.com/s/geistmono/v6/or3nQ6H-1_WfwkMZI_qYFrMdmgPn.woff2",
+      "sha256": "4866787fc952dbdbd591d6923d67bc21c2d894b93f34ab69d0cdf25d47bfb2df",
+      "bytes": 12940
+    },
+    {
+      "file": "geist-mono-latin-ext.woff2",
+      "family": "Geist Mono",
+      "weight": "400 500",
+      "subset": "latin-ext",
+      "url": "https://fonts.gstatic.com/s/geistmono/v6/or3nQ6H-1_WfwkMZI_qYFrkdmgPn.woff2",
+      "sha256": "1a189eb997c3e2ece68373e387afaec9e8617424186c4b1ab3cff7c54ba6223b",
+      "bytes": 14696
+    },
+    {
+      "file": "geist-mono-latin.woff2",
+      "family": "Geist Mono",
+      "weight": "400 500",
+      "subset": "latin",
+      "url": "https://fonts.gstatic.com/s/geistmono/v6/or3nQ6H-1_WfwkMZI_qYFrcdmg.woff2",
+      "sha256": "684ad5b531f81d43c1e8c7038262d5db7cdc1f68006e04d6c7769efa8d33c8cc",
+      "bytes": 23128
+    },
+    {
+      "file": "geist-mono-symbols2.woff2",
+      "family": "Geist Mono",
+      "weight": "400 500",
+      "subset": "symbols2",
+      "url": "https://fonts.gstatic.com/s/geistmono/v6/or3nQ6H-1_WfwkMZI_qYFg08vz7ehw.woff2",
+      "sha256": "5bb66d8319ba1602bb2eb67dce8d79c2b4687be8ce183a0574433e949b3c60ad",
+      "bytes": 5812
+    },
+    {
+      "file": "geist-mono-vietnamese.woff2",
+      "family": "Geist Mono",
+      "weight": "400 500",
+      "subset": "vietnamese",
+      "url": "https://fonts.gstatic.com/s/geistmono/v6/or3nQ6H-1_WfwkMZI_qYFrgdmgPn.woff2",
+      "sha256": "d39b60889a94a527a7f73c7988a2d6efb6c081614aef683b0b386c02d74c2175",
+      "bytes": 7696
+    },
+    {
+      "file": "golos-text-cyrillic-ext.woff2",
+      "family": "Golos Text",
+      "weight": "400 700",
+      "subset": "cyrillic-ext",
+      "url": "https://fonts.gstatic.com/s/golostext/v7/q5uCsoe9Lv5t7Meb31EcEx58hLxR.woff2",
+      "sha256": "70cf502d77aa23c8a573db8853f20a8db705d18414d170f257a9e939113aad47",
+      "bytes": 17508
+    },
+    {
+      "file": "golos-text-cyrillic.woff2",
+      "family": "Golos Text",
+      "weight": "400 700",
+      "subset": "cyrillic",
+      "url": "https://fonts.gstatic.com/s/golostext/v7/q5uCsoe9Lv5t7Meb31EcExd8hLxR.woff2",
+      "sha256": "17d048ca05cb1218af3c0d6dcdf882989e6d1cc5dcb598ea50eaf54850ff7229",
+      "bytes": 22032
+    },
+    {
+      "file": "golos-text-latin-ext.woff2",
+      "family": "Golos Text",
+      "weight": "400 700",
+      "subset": "latin-ext",
+      "url": "https://fonts.gstatic.com/s/golostext/v7/q5uCsoe9Lv5t7Meb31EcEx18hLxR.woff2",
+      "sha256": "05befabe4813f41238ce6ea4f5ecd6b758591e9ef2f303a9932bff68ba66dc66",
+      "bytes": 19180
+    },
+    {
+      "file": "golos-text-latin.woff2",
+      "family": "Golos Text",
+      "weight": "400 700",
+      "subset": "latin",
+      "url": "https://fonts.gstatic.com/s/golostext/v7/q5uCsoe9Lv5t7Meb31EcExN8hA.woff2",
+      "sha256": "9a69d0aa4734c4022224c002a3d944a702e0204972a49d892789f5668b922c2a",
+      "bytes": 37916
+    }
+  ]
+}
