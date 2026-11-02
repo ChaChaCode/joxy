@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('joxy', Object.freeze({
   elevate: (patch, options) => invoke('elevate', patch, options),
   environment: () => invoke('environment'),
   exportDiagnostics: () => invoke('export-diagnostics'),
+  checkUpdate: () => invoke('update-check'),
+  installUpdate: () => invoke('update-install'),
   minimize: () => invoke('minimize'),
   close: () => invoke('close'),
   onState: (callback) => {

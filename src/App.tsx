@@ -25,6 +25,7 @@ export default function App() {
   const [busy, setBusy] = useState('');
   const [adminPrompt, setAdminPrompt] = useState(false);
   const [hiddenConflict, setHiddenConflict] = useState('');
+  const [hiddenUpdate, setHiddenUpdate] = useState('');
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [addressesVisible, setAddressesVisible] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -83,6 +84,7 @@ export default function App() {
   };
   const connected = state.connection.phase === 'connected';
   const connecting = state.connection.phase === 'connecting';
+  const update = state.update;
   const failed = state.connection.phase === 'error';
   const active = state.profiles.find((p) => p.id === state.connection.profileId);
   const selected = state.profiles.find((p) => p.id === state.selectedId);
@@ -156,6 +158,13 @@ export default function App() {
     {/* Quiet cards in the bottom-right corner instead of banners across the window. */}
     <div className="notices" aria-live="polite">
       {!bridge && <Card title="Предпросмотр">Для подключения откройте настольное приложение.</Card>}
+      {update && update.version && ['available', 'downloading', 'ready'].includes(update.status) && hiddenUpdate !== update.version && <Card title={`Вышла версия ${update.version}`}
+        onClose={update.status === 'available' ? () => setHiddenUpdate(update.version!) : undefined}
+        action={<button className="card-action" disabled={update.status !== 'available' || !!busy || connecting} onClick={() => run('update', () => bridge!.installUpdate())}>
+          {update.status === 'downloading' ? <><LoaderCircle size={13} className="spin" />Скачиваем… {Math.round(update.progress * 100)}%</> : update.status === 'ready' ? <><LoaderCircle size={13} className="spin" />Перезапускаем…</> : 'Обновить'}
+        </button>}>
+        {update.error || `У вас ${state.version}. JOXY скачает новую версию с GitHub, сверит контрольную сумму и перезапустится${connected ? ', VPN подключится снова' : ''}.`}
+      </Card>}
       {conflictShown && <Card tone="warning" title="Включён другой VPN" onClose={() => setHiddenConflict(conflictKey)}
         action={<button className="card-action" disabled={busy === 'environment'} onClick={() => run('environment', () => bridge!.environment())}><RefreshCw size={13} className={busy === 'environment' ? 'spin' : ''} />{busy === 'environment' ? 'Проверяем…' : 'Проверить снова'}</button>}>
         Отключите {foreignNames.length ? foreignNames.map((name, i) => <span key={name}>{i > 0 && ', '}<span className="chip">{privateText(name)}</span></span>) : 'его'}, пожалуйста. Пока он работает, JOXY не сможет подключиться.

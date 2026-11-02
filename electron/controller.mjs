@@ -19,7 +19,7 @@ export function redact(text) {
 }
 
 export class Controller extends EventEmitter {
-  constructor({ store, binaryDir, runtimeDir, proxy, tunGuard = null, killSwitch = null, leakGuard = null, engineFactory, environmentReader, subscriptionFetcher = fetchSubscription, hostResolver = (host) => lookup(host, { family: 4 }).then((r) => r.address), version = appVersion }) {
+  constructor({ store, binaryDir, runtimeDir, proxy, tunGuard = null, killSwitch = null, leakGuard = null, updater = null, engineFactory, environmentReader, subscriptionFetcher = fetchSubscription, hostResolver = (host) => lookup(host, { family: 4 }).then((r) => r.address), version = appVersion }) {
     super(); this.store = store; this.binaryDir = binaryDir; this.binary = path.join(binaryDir, 'xray.exe'); this.runtimeDir = runtimeDir; this.proxy = proxy;
     this.connection = { phase: 'idle', profileId: null, since: null, exitIP: null, latency: null, systemProxy: false };
     this.stats = { down: 0, up: 0, downRate: 0, upRate: 0, history: [] };
@@ -32,6 +32,7 @@ export class Controller extends EventEmitter {
     // The leak protection: the same guard, blocking only DNS (the DNS protection) and, for a TUN without IPv6, IPv6
     // outside the TUN. The kill switch already blocks all of that, so only one of them runs at a time.
     this.leakGuard = leakGuard;
+    this.updater = updater; updater?.on('change', () => this.publish());
     leakGuard?.on('failed', (e) => this.log('error', e.message));
     leakGuard?.on('warning', (message) => this.log('warning', `Защита от утечек: ${message}`));
     this.engineFactory = engineFactory || (() => new XrayEngine(this.binary, this.runtimeDir, this.tunGuard));
@@ -81,7 +82,7 @@ export class Controller extends EventEmitter {
   publish() { if (!this.closed) this.emit('state', this.snapshot()); }
   snapshot() {
     const d = this.store.data;
-    return { version: this.version, profiles: d.profiles.map(publicProfile), sources: d.sources.map(({ url, ...safe }) => ({ ...safe, remote: !!url, count: d.profiles.filter((p) => p.sourceId === safe.id).length })), selectedId: d.selectedId, settings: d.settings, connection: this.connection, stats: this.stats, logs: this.logs, environment: this.env, core: this.core, checking: this.checking, killSwitch: { available: !!this.killSwitch, armed: !!this.killSwitch?.armed } };
+    return { version: this.version, profiles: d.profiles.map(publicProfile), sources: d.sources.map(({ url, ...safe }) => ({ ...safe, remote: !!url, count: d.profiles.filter((p) => p.sourceId === safe.id).length })), selectedId: d.selectedId, settings: d.settings, connection: this.connection, stats: this.stats, logs: this.logs, environment: this.env, core: this.core, checking: this.checking, killSwitch: { available: !!this.killSwitch, armed: !!this.killSwitch?.armed }, update: this.updater?.state || null };
   }
   networkInterface() { return this.store.data.settings.interface === 'auto' ? this.env.interface || '' : this.store.data.settings.interface; }
   // Pinned only when the user picked an interface: with none, Xray follows the default route itself (TUN) or needs no binding (proxy).

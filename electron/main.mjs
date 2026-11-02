@@ -10,6 +10,8 @@ import { providerUrl } from './subscription.mjs';
 import { settingsPatch, normalizeSettings } from './settings.mjs';
 import { elevate, isElevated, waitForPreviousProcess } from './elevation.mjs';
 import { KillSwitch } from './killswitch.mjs';
+import { Updater } from './updates.mjs';
+import { spawn } from 'node:child_process';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(directory, '..');
@@ -24,7 +26,7 @@ const dataDir = process.env.JOXY_TEST_DATA || process.env.JOMO_TEST_DATA || proc
 app.setPath('userData', dataDir);
 app.setName('JOXY');
 app.setAppUserModelId('app.joxy.desktop');
-let window, tray, controller, quitting = false, cleanupStarted = false;
+let window, tray, controller, updater, quitting = false, cleanupStarted = false;
 const resources = app.isPackaged ? process.resourcesPath : path.join(root, 'resources');
 
 await waitForPreviousProcess();
@@ -53,7 +55,7 @@ async function start() {
     try { await elevate(app, false); quitting = true; app.quit(); return; }
     catch { store.data.settings.elevateOnStart = false; await store.save(); }
   }
-  controller = new Controller({ store, binaryDir: path.join(resources, 'xray'), runtimeDir: path.join(dataDir, 'runtime'), proxy: new SystemProxy(path.join(resources, 'windows-proxy.ps1'), dataDir), tunGuard: new TunGuard(path.join(resources, 'windows-tun.ps1'), dataDir), killSwitch: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe')), leakGuard: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe'), undefined, 'Защита от утечек'), version: app.getVersion() });
+  controller = new Controller({ store, binaryDir: path.join(resources, 'xray'), runtimeDir: path.join(dataDir, 'runtime'), proxy: new SystemProxy(path.join(resources, 'windows-proxy.ps1'), dataDir), tunGuard: new TunGuard(path.join(resources, 'windows-tun.ps1'), dataDir), killSwitch: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe')), leakGuard: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe'), undefined, 'Защита от утечек'), updater: updater = new Updater({ version: app.getVersion() }), version: app.getVersion() });
   await controller.initialize();
   if (tun && controller.env.elevated && store.data.settings.elevateOnStart === false) { store.data.settings.elevateOnStart = true; await store.save(); }
   const bootstrapIndex = process.argv.indexOf('--bootstrap');
@@ -115,6 +117,22 @@ async function start() {
   powerMonitor.on('resume', () => setTimeout(() => controller.afterResume(), 4000));
   if (store.data.sources.some((s) => s.url)) controller.refreshSources().catch((e) => controller.log('warning', e.message));
   if (process.argv.includes('--reconnect') || store.data.settings.autoConnect && store.data.profiles.length) controller.connect().catch((e) => controller.log('error', e.message));
+  // A quiet check soon after start and then every six hours; a failure waits for the next one.
+  setTimeout(() => updater.check(), 8000);
+  setInterval(() => updater.check(), 6 * 3600_000);
+}
+
+// The update replaces this portable file's folder copy, or lands in Downloads when JOXY runs unpacked. The new build
+// starts once this process has ended (--wait-for-parent) and reconnects if JOXY was connected.
+async function installUpdate() {
+  if (controller.busy || controller.checking) throw new Error('Дождитесь завершения подключения или проверки.');
+  const file = await updater.download(process.env.PORTABLE_EXECUTABLE_DIR || app.getPath('downloads'));
+  const reconnect = controller.connection.phase === 'connected';
+  const child = spawn(file, ['--wait-for-parent', String(process.pid), ...(reconnect ? ['--reconnect'] : [])], { cwd: path.dirname(file), detached: true, stdio: 'ignore' });
+  await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', (e) => reject(new Error(`Не удалось запустить новую версию: ${e.message}`))); });
+  child.unref();
+  controller.log('info', `Обновление скачано: ${path.basename(file)}. Перезапускаем JOXY.`);
+  setImmediate(() => { quitting = true; app.quit(); });
 }
 
 function registerIPC() {
@@ -144,6 +162,8 @@ function registerIPC() {
       setImmediate(() => { quitting = true; app.quit(); });
     },
     environment: () => controller.refreshEnvironment(),
+    'update-check': () => updater.check({ manual: true }),
+    'update-install': () => installUpdate(),
     minimize: () => window.minimize(),
     close: () => { setImmediate(() => window.close()); },
     'import-file': async () => {

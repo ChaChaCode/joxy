@@ -32,6 +32,7 @@ export function SettingsView({ state, bridge, busy, run, back, privateText, addr
 }) {
   const [section, setSection] = useState<Section>('general');
   const s = state.settings;
+  const update = state.update;
   const [rules, setRules] = useState(s.directRules.join('\n'));
   useEffect(() => { setRules(s.directRules.join('\n')); }, [s.directRules.join('\n')]);
   const locked = !!busy || state.checking || state.connection.phase === 'connecting';
@@ -58,7 +59,14 @@ export function SettingsView({ state, bridge, busy, run, back, privateText, addr
           <Row title="Локальная сеть" description="Разрешить доступ к устройствам в локальной сети."><Toggle label="Локальная сеть" value={s.bypassLan} disabled={locked} change={(v) => apply({ bypassLan: v })} /></Row>
           <Row title="Сворачивать в трей" description="При закрытии окна подключение продолжит работать."><Toggle label="Сворачивать в трей" value={s.closeToTray} disabled={locked} change={(v) => apply({ closeToTray: v })} /></Row>
           <Row title="Тема" description="Внешний вид приложения."><Segmented label="Тема" value={s.theme || 'system'} disabled={locked} options={[['light', 'Светлая'], ['dark', 'Тёмная'], ['system', 'Система']]} change={(v) => apply({ theme: v })} /></Row>
-          <p className="about">JOXY {state.version} · Xray {state.core.version || '—'}</p>
+          <div className="about">
+            <span>JOXY {state.version} · Xray {state.core.version || '—'}</span>
+            <button className="inline-link" disabled={!bridge || busy === 'update' || update?.status === 'checking' || update?.status === 'downloading'} onClick={() => run('update', () => bridge!.checkUpdate())}>{update?.status === 'checking' ? 'Проверяем…' : 'Проверить обновления'}</button>
+            {update?.status === 'latest' && <span>Установлена последняя версия.</span>}
+            {update?.status === 'available' && <span>Вышла версия {update.version}. <button className="inline-link" disabled={!!busy} onClick={() => run('update', () => bridge!.installUpdate())}>Обновить</button></span>}
+            {update?.status === 'downloading' && <span>Скачиваем {update.version}… {Math.round(update.progress * 100)}%</span>}
+            {update?.error && <span className="about-error">{update.error}</span>}
+          </div>
         </>}
 
         {section === 'connection' && <>
