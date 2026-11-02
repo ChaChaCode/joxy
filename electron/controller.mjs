@@ -11,6 +11,8 @@ import { environment, fetchSubscription } from './network.mjs';
 import { settingsPatch, networkKeys, normalizeSettings } from './settings.mjs';
 import { version as appVersion } from './version.mjs';
 
+// Xray failing to install its Windows Filtering Platform leak filters, e.g. while another VPN holds its own.
+const wfpConflict = /autoSystemWfpBlockLeak|Fwpm[A-Za-z]+0 failed/;
 const rank = (p) => p.transport === 'xhttp' ? 0 : p.transport === 'raw' && p.fragment ? 1 : p.transport === 'raw' ? 2 : 3;
 export function redact(text) {
   return String(text).replace(/\b[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}\b/gi, '[uuid]')
@@ -250,6 +252,17 @@ export class Controller extends EventEmitter {
         } catch (e) {
           lastError = e;
           await this.proxy.restore().catch(() => {}); await engine.stop();
+          if (wfpConflict.test(e.message)) {
+            // The leak filters are Windows-wide, not the server's fault: another server would fail the same way. Most
+            // often another VPN raised its TUN between our check and the start, so the network is read again.
+            this.log('warning', e.message);
+            await this.readEnvironment().catch(() => {});
+            if (this.env.tunActive) {
+              const names = this.env.foreignTunnels?.map((t) => t.name).join(', ');
+              throw Object.assign(new Error(`Обнаружены маршруты TUN другого VPN${names ? ` (${names})` : ''}. Отключите его и повторите подключение.`), { code: 'VPN_CONFLICT' });
+            }
+            throw new Error('Windows не дала включить защиту DNS: её правила фильтрации заняты другой программой, например VPN или фаерволом. Закройте её или выключите «Защиту DNS» в настройках.');
+          }
           p.lastTest = { status: 'error', message: redact(e.message), checkedAt: new Date().toISOString() };
           this.log('warning', `${p.name}: ${e.message}`);
         }

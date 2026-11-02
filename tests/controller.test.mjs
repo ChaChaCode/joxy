@@ -284,3 +284,17 @@ test('server addresses are resolved before arming and reused while the resolver 
   assert.equal(lookups, 1, 'No lookup while armed when a cached address exists');
   await controller.close();
 });
+
+test('a TUN leak-filter failure is reported as the VPN conflict it usually is, without trying every server', async () => {
+  const f = fixture({ elevated: true }); f.data.settings.mode = 'tun';
+  const wfp = 'Ошибка конфигурации Xray: app/proxyman/inbound: failed to start proxy > proxy/tun: unable to block udp/53 (remove autoSystemWfpBlockLeak to run without) > proxy/tun: FwpmTransactionCommit0 failed > The object is referenced by other objects so cannot be deleted.';
+  const factory = f.controller.engineFactory;
+  f.controller.engineFactory = () => { const e = factory(); e.start = async (p) => { f.calls.push(`start:${p.id}`); throw new Error(wfp); }; return e; };
+  let reads = 0;
+  f.controller.environmentReader = async () => ({ interface: 'Ethernet', interfaces: ['Ethernet'], elevated: true, tunActive: reads++ > 0, foreignTunnels: reads > 1 ? [{ name: 'throne-tun', routeCount: 44 }] : [] });
+  await assert.rejects(f.controller.connect(), /TUN другого VPN \(throne-tun\)/);
+  assert.equal(f.controller.connection.errorCode, 'vpn-conflict');
+  assert.equal(f.calls.filter((c) => c.startsWith('start:')).length, 1, 'One attempt: the failure is not the server');
+  f.controller.environmentReader = async () => ({ interface: 'Ethernet', interfaces: ['Ethernet'], elevated: true, tunActive: false });
+  await assert.rejects(f.controller.connect(), /защиту DNS.*«Защиту DNS»/);
+});
