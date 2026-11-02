@@ -3,43 +3,13 @@ import world from './assets/world-dots.json';
 
 type Tone = 'idle' | 'selected' | 'connected';
 type Camera = { x: number; y: number; z: number };
-const { cols, rows, dots, countries, levels: finer } = world as unknown as { cols: number; rows: number; dots: number[]; countries: { iso: string; center: [number, number] }[]; levels: { scale: number; data: string }[] };
+const { cols, rows, dots, countries } = world as unknown as { cols: number; rows: number; dots: number[]; countries: { iso: string; center: [number, number] }[] };
 
-// Three levels of detail on one origin: 1x, 2x and 4x dots per side. Coordinates are in base-grid units throughout.
-// Each finer dot remembers the coarser dot it splits from, so a level change reads as dots dividing, not as a swap.
-type Pt = [x: number, y: number, parentX: number, parentY: number, fromParent: number];
-type Level = { scale: number; byCountry: Map<string, Pt[]>; orphans: Map<string, Pt[]> };
-const decode = (b64: string) => { const bin = atob(b64), bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return new Uint16Array(bytes.buffer); };
-const raw: { scale: number; triplets: ArrayLike<number> }[] = [{ scale: 1, triplets: dots }, ...finer.map((l) => ({ scale: l.scale, triplets: decode(l.data) }))];
-const cell = (col: number, row: number) => col * 4096 + row;
-const push = (map: Map<string, Pt[]>, iso: string, point: Pt) => { const list = map.get(iso); if (list) list.push(point); else map.set(iso, [point]); };
-const levels: Level[] = raw.map(({ scale, triplets }, i) => {
-  const byCountry = new Map<string, Pt[]>(), orphans = new Map<string, Pt[]>();
-  const parent = raw[i - 1], parentScale = parent?.scale || scale, parentCells = new Set<number>(), withChild = new Set<number>();
-  if (parent) for (let j = 0; j < parent.triplets.length; j += 3) parentCells.add(cell(parent.triplets[j], parent.triplets[j + 1]));
-  const ratio = scale / parentScale;
-  for (let j = 0; j < triplets.length; j += 3) {
-    const col = triplets[j], row = triplets[j + 1], x = (col + 0.5) / scale, y = (row + 0.5) / scale;
-    const pc = Math.floor(col / ratio), pr = Math.floor(row / ratio), has = parent ? parentCells.has(cell(pc, pr)) : false;
-    if (has) withChild.add(cell(pc, pr));
-    push(byCountry, countries[triplets[j + 2]].iso, has ? [x, y, (pc + 0.5) / parentScale, (pr + 0.5) / parentScale, 1] : [x, y, x, y, 0]);
-  }
-  // Coarse dots with no land below them at the finer level fade out instead of vanishing.
-  if (parent) for (let j = 0; j < parent.triplets.length; j += 3) if (!withChild.has(cell(parent.triplets[j], parent.triplets[j + 1]))) {
-    const x = (parent.triplets[j] + 0.5) / parentScale, y = (parent.triplets[j + 1] + 0.5) / parentScale;
-    push(orphans, countries[parent.triplets[j + 2]].iso, [x, y, x, y, 0]);
-  }
-  return { scale, byCountry, orphans };
-});
-const byCountry = levels[0].byCountry;
-// Each step of detail takes over around a doubling of the zoom, over a wide band, so the dots on screen keep about the
-// same spacing and the outlines sharpen instead of the dots swelling.
-const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-function stage(z: number): { level: number; t: number } {
-  const f = Math.log2(z), split1 = smooth(0.62, 1.38, f), split2 = smooth(1.62, 2.38, f);
-  if (split2 > 0) return { level: 2, t: split2 };
-  if (split1 >= 1) return { level: 1, t: 1 };
-  return split1 > 0 ? { level: 1, t: split1 } : { level: 0, t: 1 };
+const byCountry = new Map<string, [number, number][]>();
+for (let i = 0; i < dots.length; i += 3) {
+  const iso = countries[dots[i + 2]].iso, point: [number, number] = [dots[i] + 0.5, dots[i + 1] + 0.5];
+  const list = byCountry.get(iso);
+  if (list) list.push(point); else byCountry.set(iso, [point]);
 }
 
 const MIN_Z = 1, MAX_Z = 8, BLEED = 1.14; // at z = 1 the world is 14% wider than the view, so its edges leave the frame
@@ -84,41 +54,22 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const style = getComputedStyle(el), k = scale(w), c = cam.current;
+    const r = Math.min(Math.max(k * 0.29, 0.7), 7);
     const ax = w / 2, ay = h * ANCHOR_Y;
     const { iso: chosen, tone: t, servers: available } = props.current;
-    const land = style.getPropertyValue('--dot'), server = style.getPropertyValue('--map-server');
-    const highlight = t === 'connected' ? style.getPropertyValue('--green') : t === 'selected' ? style.getPropertyValue('--text') : '';
-    const { level: li, t: split } = stage(c.z);
-    const { scale: s, byCountry: countriesAt, orphans } = levels[li];
-    // Dot size follows the spacing of its level; while splitting it eases from the parent's size to the child's.
-    const radius = (sc: number) => Math.min(Math.max((k / sc) * 0.29, 0.7), 7);
-    // Size eases out ahead of position: the dots shrink first and then part, so mid-split they read as dots, not tiles.
-    const parentR = li > 0 ? radius(levels[li - 1].scale) : radius(s), r = parentR + (radius(s) - parentR) * (1 - (1 - split) ** 3);
-    // Every frame is drawn at the real scale, so dots stay crisp while the camera moves; off-screen dots are skipped.
-    // fromParent 1: children leave their parent's spot as the split proceeds; 0: new coastline, faded in where it is.
-    const paint = (points: Pt[], color: string, only: number, move: number) => {
+    // Every frame is drawn at the real scale, so dots stay crisp while the camera moves.
+    const paint = (points: Iterable<[number, number]>, color: string) => {
       ctx.fillStyle = color; ctx.beginPath();
-      for (const p of points) {
-        if (only >= 0 && p[4] !== only) continue;
-        const x = p[2] + (p[0] - p[2]) * move, y = p[3] + (p[1] - p[3]) * move;
+      for (const [x, y] of points) {
         const sx = ax + (x - c.x) * k, sy = ay + (y - c.y) * k;
         if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
         ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2);
       }
       ctx.fill();
     };
-    const colorOf = (code: string) => code === chosen && highlight ? highlight : available.has(code) ? server : land;
-    const pass = (map: Map<string, Pt[]>, only: number, move: number) => {
-      for (const [code, points] of map) if (code !== chosen) paint(points, colorOf(code), only, move);
-      if (chosen && map.has(chosen)) paint(map.get(chosen)!, colorOf(chosen), only, move);
-    };
-    if (split >= 1) pass(countriesAt, -1, 1);
-    else {
-      pass(countriesAt, 1, split);
-      ctx.globalAlpha = split; pass(countriesAt, 0, 1);
-      ctx.globalAlpha = 1 - split; pass(orphans, -1, 1);
-    }
-    ctx.globalAlpha = 1;
+    const land = style.getPropertyValue('--dot'), server = style.getPropertyValue('--map-server');
+    for (const [code, points] of byCountry) if (code !== chosen) paint(points, available.has(code) ? server : land);
+    if (chosen) paint(byCountry.get(chosen) || [], t === 'connected' ? style.getPropertyValue('--green') : t === 'selected' ? style.getPropertyValue('--text') : available.has(chosen) ? server : land);
   }, []);
 
   // One loop drives springs and momentum; it stops itself when everything is at rest.
