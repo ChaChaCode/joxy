@@ -38,13 +38,25 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
   const vel = useRef<Camera>({ x: 0, y: 0, z: 0 });
   const target = useRef<Camera | null>(null);
   const glide = useRef(false); // momentum after a flick
-  const drag = useRef<{ id: number; x: number; y: number; history: { x: number; y: number; t: number }[] } | null>(null);
+  // raw: where the pointer would have put the camera with no edges; the camera shows it with the edges' resistance.
+  const drag = useRef<{ id: number; x: number; y: number; rawX: number; rawY: number; history: { x: number; y: number; t: number }[] } | null>(null);
   const frameId = useRef(0);
   const [moved, setMoved] = useState(false);
   const props = useRef({ iso, tone, servers: new Set(servers) });
   props.current = { iso, tone, servers: new Set(servers) };
 
   const scale = (w: number) => (w * BLEED / cols) * cam.current.z;
+  // The camera may go as far as the map still fills the view, as content does on iOS; where the map is smaller than the
+  // view, it stays centred on that axis and can only be pulled against the resistance.
+  const limits = (z: number) => {
+    const el = canvas.current!, w = el.clientWidth || 1, h = el.clientHeight || 1, k = (w * BLEED / cols) * z, ay = h * ANCHOR_Y;
+    let x0 = w / 2 / k, x1 = cols - w / 2 / k, y0 = ay / k, y1 = rows - (h - ay) / k;
+    if (x0 > x1) x0 = x1 = cols / 2;
+    if (y0 > y1) y0 = y1 = rows / 2;
+    return { x0, x1, y0, y1, vw: w / k, vh: h / k };
+  };
+  const inside = (p: Camera): Camera => { const l = limits(p.z); return { ...p, x: Math.min(l.x1, Math.max(l.x0, p.x)), y: Math.min(l.y1, Math.max(l.y0, p.y)) }; };
+  const outside = (p: Camera) => { const q = inside(p); return Math.abs(q.x - p.x) > 1e-4 || Math.abs(q.y - p.y) > 1e-4; };
   const draw = useCallback(() => {
     const el = canvas.current;
     if (!el) return;
@@ -93,8 +105,7 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
         // Momentum decays like scrolling (0.998 per millisecond); out of bounds it hands over to a spring back.
         const decay = Math.pow(0.998, dt * 1000);
         v.x *= decay; v.y *= decay; c.x += v.x * dt; c.y += v.y * dt;
-        const outside = c.x < 0 || c.x > cols || c.y < 0 || c.y > rows;
-        if (outside) { glide.current = false; target.current = { x: Math.min(cols, Math.max(0, c.x)), y: Math.min(rows, Math.max(0, c.y)), z: c.z }; busy = true; }
+        if (outside(c)) { glide.current = false; target.current = inside(c); busy = true; }
         else busy = Math.hypot(v.x, v.y) > 0.05;
         if (!busy) glide.current = false;
       }
@@ -111,7 +122,7 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
   }, [draw, tick]);
 
   // Connecting flies to the country; disconnecting returns to the whole world.
-  const destination = () => (focus && iso ? frame(iso) : null) || home();
+  const destination = () => inside((focus && iso ? frame(iso) : null) || home());
   useEffect(() => { goTo(destination()); setMoved(false); }, [focus, iso]);
   useEffect(() => { draw(); }, [tone, iso, servers.join(), draw]);
   useEffect(() => {
@@ -130,9 +141,9 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
     // The point under the cursor stays under the cursor.
     const gx = c.x + (sx - w / 2) / k0, gy = c.y + (sy - h * ANCHOR_Y) / k0;
     const next = { x: gx - (sx - w / 2) / k1, y: gy - (sy - h * ANCHOR_Y) / k1, z };
-    next.x = Math.min(cols, Math.max(0, next.x)); next.y = Math.min(rows, Math.max(0, next.y));
+    const held = inside(next);
     setMoved(true);
-    if (animate) goTo(next); else { target.current = null; glide.current = false; cam.current = next; draw(); }
+    if (animate) goTo(held); else { target.current = null; glide.current = false; cam.current = held; draw(); }
   };
   const onWheel = (e: WheelEvent<HTMLCanvasElement>) => {
     const box = e.currentTarget.getBoundingClientRect();
@@ -143,16 +154,16 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
     e.currentTarget.setPointerCapture(e.pointerId);
     // Grabbing stops any flight or glide where it is, and continues from that very frame.
     target.current = null; glide.current = false; vel.current = { x: 0, y: 0, z: 0 };
-    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, history: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
+    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, rawX: cam.current.x, rawY: cam.current.y, history: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
   };
   const onPointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     const k = scale(e.currentTarget.clientWidth), c = cam.current;
-    const free = { x: c.x - (e.clientX - d.x) / k, y: c.y - (e.clientY - d.y) / k };
-    // Tracks 1:1 inside the world, with growing resistance past its edge.
-    const soft = (value: number, max: number) => value < 0 ? rubber(value, max) : value > max ? max + rubber(value - max, max) : value;
-    c.x = soft(free.x, cols); c.y = soft(free.y, rows);
+    d.rawX -= (e.clientX - d.x) / k; d.rawY -= (e.clientY - d.y) / k;
+    // 1:1 while the map fills the view; past that the map follows less and less the further it is pulled.
+    const l = limits(c.z), band = (v: number, lo: number, hi: number, size: number) => v < lo ? lo + rubber(v - lo, size) : v > hi ? hi + rubber(v - hi, size) : v;
+    c.x = band(d.rawX, l.x0, l.x1, l.vw); c.y = band(d.rawY, l.y0, l.y1, l.vh);
     d.x = e.clientX; d.y = e.clientY;
     d.history.push({ x: e.clientX, y: e.clientY, t: performance.now() });
     if (d.history.length > 6) d.history.shift();
@@ -164,8 +175,8 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
     drag.current = null;
     const first = d.history[0], lastPoint = d.history.at(-1)!, span = (lastPoint.t - first.t) / 1000;
     const k = scale(e.currentTarget.clientWidth), c = cam.current;
-    const outside = c.x < 0 || c.x > cols || c.y < 0 || c.y > rows;
-    if (outside) { goTo({ x: Math.min(cols, Math.max(0, c.x)), y: Math.min(rows, Math.max(0, c.y)), z: c.z }); return; }
+    // Let go past an edge and the map springs back; inside, the release velocity carries on as momentum.
+    if (outside(c)) { goTo(inside(c)); return; }
     // The release velocity carries on as momentum: a flick throws the map.
     if (span > 0 && performance.now() - lastPoint.t < 80) {
       vel.current = { x: -(lastPoint.x - first.x) / span / k, y: -(lastPoint.y - first.y) / span / k, z: 0 };
@@ -175,8 +186,8 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
   const onKeyDown = (e: KeyboardEvent<HTMLCanvasElement>) => {
     const el = e.currentTarget, step = 40 / scale(el.clientWidth), c = cam.current;
     const moves: Record<string, () => void> = {
-      ArrowLeft: () => goTo({ ...c, x: Math.max(0, c.x - step) }), ArrowRight: () => goTo({ ...c, x: Math.min(cols, c.x + step) }),
-      ArrowUp: () => goTo({ ...c, y: Math.max(0, c.y - step) }), ArrowDown: () => goTo({ ...c, y: Math.min(rows, c.y + step) }),
+      ArrowLeft: () => goTo(inside({ ...c, x: c.x - step })), ArrowRight: () => goTo(inside({ ...c, x: c.x + step })),
+      ArrowUp: () => goTo(inside({ ...c, y: c.y - step })), ArrowDown: () => goTo(inside({ ...c, y: c.y + step })),
       '+': () => zoomAt(1.5, el.clientWidth / 2, el.clientHeight * ANCHOR_Y, true), '=': () => zoomAt(1.5, el.clientWidth / 2, el.clientHeight * ANCHOR_Y, true),
       '-': () => zoomAt(1 / 1.5, el.clientWidth / 2, el.clientHeight * ANCHOR_Y, true), '0': () => { goTo(destination()); setMoved(false); },
     };
