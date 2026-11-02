@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 const flags = import.meta.glob<string>('./assets/flags/*.svg', { eager: true, query: '?url', import: 'default' });
 const regions = new Intl.DisplayNames(['ru'], { type: 'region' });
 export function countryName(code?: string | null): string | null {
@@ -6,12 +8,23 @@ export function countryName(code?: string | null): string | null {
 }
 
 // Tiles share the flag's size, corner and hairline, so a list of flags, auto and unknown servers lines up.
-// No country known: a plain line globe, legible at flag size where a dotted one reads as a grille.
+// No country known: a small Earth in colour. Ocean with light from the top left, two stylised land masses clipped to
+// the disc, a highlight and a darker rim, centred in a flag-sized tile so rows of flags stay even.
 export function GlobeTile({ label = 'Страна не указана' }: { label?: string }) {
-  return <span className="country-flag tile tile-globe" role="img" aria-label={label}><svg viewBox="0 0 24 17" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="0.95">
-    <circle cx="12" cy="8.5" r="5.6" />
-    <ellipse cx="12" cy="8.5" rx="2.4" ry="5.6" />
-    <path d="M6.4 8.5h11.2M7.3 5.6h9.4M7.3 11.4h9.4" />
+  const id = useId().replace(/:/g, '');
+  return <span className="country-flag tile tile-globe" role="img" aria-label={label}><svg viewBox="0 0 24 17" aria-hidden="true">
+    <defs>
+      <radialGradient id={`${id}o`} cx="0.36" cy="0.32" r="0.8"><stop offset="0" stopColor="#5fb4ff" /><stop offset="0.6" stopColor="#2f7ff0" /><stop offset="1" stopColor="#1b4fc4" /></radialGradient>
+      <radialGradient id={`${id}l`} cx="0.36" cy="0.32" r="0.85"><stop offset="0" stopColor="#7ee08f" /><stop offset="1" stopColor="#259b4a" /></radialGradient>
+      <clipPath id={`${id}c`}><circle cx="12" cy="8.5" r="6.6" /></clipPath>
+    </defs>
+    <circle cx="12" cy="8.5" r="6.6" fill={`url(#${id}o)`} />
+    <g clipPath={`url(#${id}c)`} fill={`url(#${id}l)`}>
+      <path d="M5.3 3.6c1.4-1 3.4-.9 4.2.4.5.8-.2 1.6.4 2.4.5.7 1.5.9 1.4 1.9-.1.9-1.2 1.2-1.6 2-.4.8.1 1.9-.6 2.5-.9.7-1.7-.4-2-1.4-.4-1.2-1.6-1.6-1.9-2.9-.3-1.3-.9-3.9.1-4.9Z" />
+      <path d="M13.7 2.4c1.2-.5 2.8-.3 3.6.6.6.6.2 1.4.9 1.9.8.5 2 .3 2.3 1.3.3.9-.6 1.5-1.1 2.2-.5.8-.2 2-.9 2.7-.8.8-1.9.3-2.5 1.2-.5.7-.4 2-1.3 2.2-1 .2-1.2-1-1.3-2-.1-1.2.7-2.1.2-3.2-.4-1-1.6-1.3-1.5-2.4.1-1 1.1-1.7 1.6-2.5Z" />
+    </g>
+    <ellipse cx="9.6" cy="5.6" rx="2.6" ry="1.6" fill="#fff" opacity="0.28" transform="rotate(-28 9.6 5.6)" />
+    <circle cx="12" cy="8.5" r="6.35" fill="none" stroke="#0b2f7a" strokeOpacity="0.35" strokeWidth="0.5" />
   </svg></span>;
 }
 // Auto selection: two sparkles on ink, "the best one is picked for you".

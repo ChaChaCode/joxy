@@ -64,7 +64,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .tile svg { width: 100%; height: 100%; display: block; }
 .tile-auto svg { fill: currentColor; }
 .tile-auto { background: var(--ink); color: var(--on-ink); }
-.tile-globe { background: var(--surface-hover); color: var(--secondary); }
+.tile-globe { background: var(--surface-hover); }
 
 /* Notices are quiet cards in the bottom-right corner; they never push the layout around. */
 /* Notices are quiet cards in the bottom-right corner; they never push the layout around and never cover the button. */
