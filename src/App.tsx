@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Check, ChevronDown, CircleAlert, FileInput, LoaderCircle, Minus, Plus, Power, RefreshCw, ShieldCheck, X } from './icons';
 import type { Profile, State } from './types';
 import { AutoTile, CountryFlag, countryName } from './CountryFlag';
@@ -24,6 +24,7 @@ export default function App() {
   const [importError, setImportError] = useState('');
   const [busy, setBusy] = useState('');
   const [adminPrompt, setAdminPrompt] = useState(false);
+  const [hiddenConflict, setHiddenConflict] = useState('');
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [addressesVisible, setAddressesVisible] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -90,6 +91,11 @@ export default function App() {
   const destination = shown || [...state.profiles].sort((a, b) => (a.transport === 'xhttp' ? 0 : 1) - (b.transport === 'xhttp' ? 0 : 1))[0];
   const iso = shown?.countryCode && /^[A-Z]{2}$/.test(shown.countryCode) ? shown.countryCode : null;
   const mode = state.connection.mode || state.settings.mode;
+  // A dismissed conflict card stays hidden for that VPN until it goes away; if it comes back, so does the card.
+  const foreignNames = state.environment.foreignTunnels?.map((t) => t.name) || [];
+  const conflictKey = foreignNames.join(',') || 'vpn';
+  const conflictShown = state.environment.tunActive && hiddenConflict !== conflictKey;
+  useEffect(() => { if (!state.environment.tunActive) setHiddenConflict(''); }, [state.environment.tunActive]);
   const serverCountries = [...new Set(state.profiles.map((p) => p.countryCode).filter((c): c is string => !!c && /^[A-Z]{2}$/.test(c)))].sort();
   const openImport = () => { setPickerOpen(false); setImportText(''); setImportError(''); setImportOpen(true); };
   const importSubmit = () => run('import', async () => {
@@ -149,11 +155,20 @@ export default function App() {
 
     {/* Quiet cards in the bottom-right corner instead of banners across the window. */}
     <div className="notices" aria-live="polite">
-      {!bridge && <div className="card"><CircleAlert size={16} /><div><strong>Предпросмотр</strong><p>Для подключения откройте настольное приложение.</p></div></div>}
-      {state.environment.tunActive && <div className="card warning" role="status"><CircleAlert size={16} /><div><strong>Включён сторонний VPN</strong><p>{state.environment.foreignTunnels?.length ? `${privateText(state.environment.foreignTunnels.map((t) => t.name).join(', '))}: о` : 'О'}тключите его, пожалуйста. Пока он работает, JOXY не сможет подключиться.</p><button className="card-action" disabled={busy === 'environment'} onClick={() => run('environment', () => bridge!.environment())}>{busy === 'environment' ? 'Проверяем…' : 'Проверить снова'}</button></div></div>}
-      {state.core.error && <div className="card danger"><CircleAlert size={16} /><div><strong>Ядро недоступно</strong><p>{privateText(state.core.error)}</p></div></div>}
-      {adminPrompt && mode === 'tun' && !state.environment.elevated && <div className="card warning" role="status"><ShieldCheck size={16} /><div><strong>Права администратора не получены</strong><p>Без них Windows не даст создать адаптер TUN. Можно повторить запрос или выбрать системный прокси в настройках.</p><button className="card-action" disabled={!!busy} onClick={elevateAndConnect}>Запросить снова</button></div><button className="card-close" aria-label="Скрыть" onClick={() => setAdminPrompt(false)}><X size={13} /></button></div>}
-      {state.killSwitch?.armed && !connected && <div className="card warning kill-switch-notice" role="status"><ShieldCheck size={16} /><div><strong>Интернет заблокирован</strong><p>Kill switch держит блокировку, пока VPN не восстановится.</p><button className="card-action" disabled={!!busy || connecting} onClick={() => run('disconnect', () => bridge!.disconnect(), 'Блокировка снята')}>Снять блокировку</button></div></div>}
+      {!bridge && <Card icon={<CircleAlert size={17} />} title="Предпросмотр">Для подключения откройте настольное приложение.</Card>}
+      {conflictShown && <Card tone="warning" icon={<CircleAlert size={17} />} title="Включён другой VPN" onClose={() => setHiddenConflict(conflictKey)}
+        action={<button className="card-action" disabled={busy === 'environment'} onClick={() => run('environment', () => bridge!.environment())}><RefreshCw size={13} className={busy === 'environment' ? 'spin' : ''} />{busy === 'environment' ? 'Проверяем…' : 'Проверить снова'}</button>}>
+        Отключите {foreignNames.length ? foreignNames.map((name, i) => <span key={name}>{i > 0 && ', '}<span className="chip">{privateText(name)}</span></span>) : 'его'}, пожалуйста. Пока он работает, JOXY не сможет подключиться.
+      </Card>}
+      {state.core.error && <Card tone="danger" icon={<CircleAlert size={17} />} title="Ядро недоступно">{privateText(state.core.error)}</Card>}
+      {adminPrompt && mode === 'tun' && !state.environment.elevated && <Card tone="warning" icon={<ShieldCheck size={17} />} title="Права администратора не получены" onClose={() => setAdminPrompt(false)}
+        action={<button className="card-action" disabled={!!busy} onClick={elevateAndConnect}><ShieldCheck size={13} />Запросить снова</button>}>
+        Без них Windows не даст создать адаптер TUN. Можно повторить запрос или выбрать системный прокси в настройках.
+      </Card>}
+      {state.killSwitch?.armed && !connected && <Card tone="warning" icon={<ShieldCheck size={17} />} title="Интернет заблокирован"
+        action={<button className="card-action" disabled={!!busy || connecting} onClick={() => run('disconnect', () => bridge!.disconnect(), 'Блокировка снята')}>Снять блокировку</button>}>
+        Kill switch держит блокировку, пока VPN не восстановится.
+      </Card>}
     </div>
 
     {view === 'home' ? <>
@@ -177,5 +192,13 @@ export default function App() {
 
     {toast && <div role="status" className={`toast ${toast.error ? 'error' : ''}`}>{toast.error ? <CircleAlert size={17} /> : <Check size={17} />}<span>{privateText(toast.message)}</span><button aria-label="Закрыть уведомление" onClick={() => setToast(null)}><X size={14} /></button></div>}
     {importOpen && <div className="modal-backdrop" onPointerDown={(e) => { backdropPress.current = e.target === e.currentTarget; }} onClick={(e) => { if (backdropPress.current && e.target === e.currentTarget && !busy) setImportOpen(false); backdropPress.current = false; }}><section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onKeyDown={modalKeys} onClick={(e) => e.stopPropagation()}><button className="modal-close icon-button" aria-label="Закрыть импорт" disabled={!!busy} onClick={() => setImportOpen(false)}><X size={18} /></button><h2 id="import-title">Добавить подключение</h2><p>Вставьте ссылку подписки, VLESS или Xray JSON.</p><label className="field-label" htmlFor="import-value">Ссылка или конфигурация</label><textarea ref={importRef} id="import-value" value={importText} onChange={(e) => { setImportText(e.target.value); setImportError(''); }} placeholder="https://example.com/subscription" spellCheck={false} aria-invalid={!!importError} aria-describedby={importError ? 'import-error' : 'import-help'} />{importError ? <p id="import-error" className="field-error" role="alert">{privateText(importError)}</p> : <p id="import-help" className="field-hint">Профили сохраняются на этом устройстве в зашифрованном виде.</p>}<div className="modal-actions"><button className="button secondary" disabled={!!busy} onClick={() => run('file', async () => { const r = await bridge!.importFile(); if (r) { setImportOpen(false); setToast({ message: `Добавлено: ${countProfiles(r.count)}` }); } })}><FileInput size={15} />Из файла</button><button className="button primary" disabled={!importText.trim() || !!busy} onClick={importSubmit}>{busy === 'import' && <LoaderCircle size={15} className="spin" />}{busy === 'import' ? 'Добавляем…' : 'Добавить'}</button></div></section></div>}
+  </div>;
+}
+
+function Card({ tone = '', icon, title, children, action, onClose }: { tone?: '' | 'warning' | 'danger'; icon: ReactNode; title: string; children: ReactNode; action?: ReactNode; onClose?: () => void }) {
+  return <div className={`card ${tone}`} role="status">
+    <span className="card-icon" aria-hidden="true">{icon}</span>
+    <div className="card-body"><strong>{title}</strong><p>{children}</p>{action}</div>
+    {onClose && <button className="card-close" aria-label="Скрыть" onClick={onClose}><X size={13} /></button>}
   </div>;
 }
