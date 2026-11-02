@@ -38,7 +38,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .picker { position: relative; }
 .picker-button { display: inline-flex; align-items: center; gap: 9px; max-width: 420px; padding: 8px 10px; margin-left: -10px; border-radius: 9px; background: transparent; font-size: 14px; font-weight: 550; letter-spacing: -0.005em; }
 .picker-button:hover { background: var(--surface-hover); }
-.picker-button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-button > span:not(.tile) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-button .country-flag { width: 20px; height: 14px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px var(--line); }
 .picker-button svg.flipped { transform: rotate(180deg); }
 .picker-button svg { transition: transform var(--spring-fast) var(--spring); }
@@ -184,7 +184,7 @@ main.stage { max-width: none; margin: 0; padding: 0 24px; overflow: hidden; flex
 .section-actions > span { margin-right: auto; }
 .sub-server { display: flex; align-items: center; gap: 11px; padding: 11px 18px; border-top: 1px solid var(--line); }
 .sub-server .country-flag { width: 22px; height: 15px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px var(--line); }
-.sub-server > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sub-server > span:not(.tile) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sub-server strong { font-size: 13px; font-weight: 550; }
 .sub-server small { font-size: 11px; color: var(--secondary); }
 .sub-server em { font-style: normal; font-family: var(--font-mono); font-size: 11px; color: var(--secondary); }
