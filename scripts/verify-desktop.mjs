@@ -34,7 +34,7 @@ async function pollState(page, predicate, timeout = 30000) {
   throw new Error('Timed out waiting for desktop state: '+JSON.stringify(last?.profiles.map((p) => ({name:p.name,result:p.lastTest}))));
 }
 try {
-  desktop = await electron.launch({ executablePath: process.env.JOXY_DESKTOP_PATH || path.resolve('release-joxy-0.6.16/win-unpacked/JOXY.exe'), args: ['--bootstrap', bootstrap], env, timeout: 45000 });
+  desktop = await electron.launch({ executablePath: process.env.JOXY_DESKTOP_PATH || path.resolve('release-joxy-0.6.17/win-unpacked/JOXY.exe'), args: ['--bootstrap', bootstrap], env, timeout: 45000 });
   const page = await desktop.firstWindow();
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
   await page.getByRole('heading', { name: 'Подключение' }).waitFor({ timeout: 30000 });

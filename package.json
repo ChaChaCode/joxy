@@ -1,7 +1,7 @@
 {
   "name": "joxy",
   "productName": "JOXY",
-  "version": "0.6.16",
+  "version": "0.6.17",
   "private": true,
   "description": "An independent Windows proxy client powered by Xray",
   "author": "ChaChaCode",
@@ -49,7 +49,7 @@
     "productName": "JOXY",
     "artifactName": "JOXY-${version}-Windows-x64.${ext}",
     "directories": {
-      "output": "release-joxy-0.6.16"
+      "output": "release-joxy-0.6.17"
     },
     "files": [
       "dist/**/*",

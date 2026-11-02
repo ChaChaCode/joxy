@@ -8,7 +8,7 @@ const temporary = await mkdtemp(path.join(os.tmpdir(), 'joxy-settings-desktop-')
 const bootstrap = path.join(temporary, 'bootstrap.json');
 await writeFile(bootstrap, await readFile(process.env.JOXY_SUBSCRIPTION_FILE));
 const env = { ...process.env, JOXY_TEST_DATA: path.join(temporary, 'data') }; delete env.ELECTRON_RUN_AS_NODE;
-const executablePath = path.resolve('release-joxy-0.6.16/win-unpacked/JOXY.exe');
+const executablePath = path.resolve('release-joxy-0.6.17/win-unpacked/JOXY.exe');
 let desktop;
 try {
   desktop = await electron.launch({ executablePath, args: ['--bootstrap', bootstrap], env, timeout: 45000 });

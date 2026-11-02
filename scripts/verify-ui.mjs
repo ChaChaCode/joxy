@@ -178,10 +178,21 @@ try {
   await page.getByRole('button', { name: 'Подключение', exact: true }).click();
   await page.getByRole('switch', { name: 'Резервный маршрут' }).click();
   assert.equal((await saved()).settings.autoFallback, false);
+  // The custom drop-down: keyboard opens it, arrows move, Enter picks; Escape closes without a change.
+  const timeout = page.getByRole('combobox', { name: 'Тайм-аут проверки' });
+  await timeout.focus(); await page.keyboard.press('ArrowDown');
+  await page.getByRole('listbox', { name: 'Тайм-аут проверки' }).waitFor();
+  await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
+  assert.equal((await saved()).settings.timeout, 12000);
+  assert.equal(await page.getByRole('listbox').count(), 0);
+  await timeout.click(); await page.keyboard.press('ArrowUp'); await page.keyboard.press('Escape');
+  assert.equal((await saved()).settings.timeout, 12000, 'Escape keeps the value');
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Тайм-аут проверки', 'Focus returns to the control');
   await page.getByRole('button', { name: 'Основные', exact: true }).click();
   assert.equal(await page.getByRole('switch', { name: 'Kill switch' }).isDisabled(), true, 'Kill switch needs TUN');
   // Choosing TUN asks Windows for rights at once; a declined prompt leaves the previous mode.
-  await page.getByLabel('Режим подключения').selectOption('tun');
+  await page.getByRole('combobox', { name: 'Режим подключения' }).click();
+  await page.getByRole('listbox', { name: 'Режим подключения' }).getByRole('option', { name: 'TUN' }).click();
   await page.locator('.toast.error').filter({ hasText: 'Windows не подтвердила' }).waitFor();
   assert.equal((await saved()).settings.mode, 'system', 'Declined elevation keeps the previous mode');
   await page.evaluate(() => window.joxy.settings({ mode: 'tun' }));

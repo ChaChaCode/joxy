@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Activity, ArrowDown, Check, CircleAlert, CircleCheck, Clock3, Download, Eye, Globe2, LoaderCircle, Network, Plus, RefreshCw, Servers, Settings2 } from './icons';
 import type { Bridge, Settings, State } from './types';
+import { Select } from './Select';
 import { ServerGroup } from './ServerGroup';
 import { CountryFlag } from './CountryFlag';
 import { countProfiles, transport } from './format';
@@ -48,7 +49,8 @@ export function SettingsView({ state, bridge, busy, run, back, privateText, addr
 
         {section === 'general' && <>
           <Row title="Режим" description={tun ? 'Весь трафик приложений через виртуальный адаптер.' : s.mode === 'system' ? 'Браузеры и приложения, которые используют прокси Windows.' : 'HTTP и SOCKS для ручной настройки отдельных приложений.'} note={needsAdmin ? <span className="row-note">{state.environment.recoveryRequired ? 'Нужно восстановить прошлую TUN-сессию.' : 'Права администратора не получены.'} <button className="inline-link" disabled={locked} onClick={() => run('elevate', () => bridge ? bridge.elevate({ mode: 'tun' }) : Promise.reject(new Error('Desktop application required.')))}>Запросить права</button></span> : undefined}>
-            <select aria-label="Режим подключения" disabled={locked} value={s.mode} onChange={(e) => { const mode = e.target.value as Settings['mode']; if (mode === 'tun' && !state.environment.elevated) run('elevate', () => bridge ? bridge.elevate({ mode }) : Promise.reject(new Error('Desktop application required.'))); else apply({ mode }); }}><option value="tun" disabled={!state.core.tunReady}>TUN</option><option value="system">Системный прокси</option><option value="local">Локальный прокси</option></select>
+            <Select label="Режим подключения" disabled={locked} value={s.mode} options={[{ value: 'tun', label: 'TUN', disabled: !state.core.tunReady }, { value: 'system', label: 'Системный прокси' }, { value: 'local', label: 'Локальный прокси' }]}
+              change={(mode) => { if (mode === 'tun' && !state.environment.elevated) run('elevate', () => bridge ? bridge.elevate({ mode }) : Promise.reject(new Error('Desktop application required.'))); else apply({ mode }); }} />
           </Row>
           <Row title="Автоподключение" description="Подключаться при запуске приложения."><Toggle label="Автоподключение" value={!!s.autoConnect} disabled={locked} change={(v) => apply({ autoConnect: v })} /></Row>
           <Row title="Kill Switch" description={tun ? 'Блокировать интернет при разрыве VPN-соединения.' : 'Доступен в режиме TUN.'} disabled={!tun}><Toggle label="Kill switch" value={s.killSwitch} disabled={locked || !tun} change={(v) => apply({ killSwitch: v })} /></Row>
@@ -60,12 +62,12 @@ export function SettingsView({ state, bridge, busy, run, back, privateText, addr
         </>}
 
         {section === 'connection' && <>
-          <Row title="Сетевой интерфейс" description="Подключение, через которое JOXY выходит к серверу."><select aria-label="Сетевой интерфейс" disabled={locked} value={s.interface} onChange={(e) => apply({ interface: e.target.value })}><option value="auto">Автоматически</option>{state.environment.interfaces.map((i) => <option key={i} value={i}>{i}</option>)}</select></Row>
+          <Row title="Сетевой интерфейс" description="Подключение, через которое JOXY выходит к серверу."><Select label="Сетевой интерфейс" disabled={locked} value={s.interface} options={[{ value: 'auto', label: 'Автоматически' }, ...state.environment.interfaces.map((i) => ({ value: i, label: i }))]} change={(v) => apply({ interface: v })} /></Row>
           <Row title="Резервный маршрут" description="При потере связи пробовать другие серверы."><Toggle label="Резервный маршрут" value={s.autoFallback} disabled={locked} change={(v) => apply({ autoFallback: v })} /></Row>
-          <Row title="Тайм-аут проверки" description="Сколько ждать ответа сервера."><select aria-label="Тайм-аут проверки" disabled={locked} value={s.timeout} onChange={(e) => apply({ timeout: Number(e.target.value) })}><option value={5000}>5 секунд</option><option value={8000}>8 секунд</option><option value={12000}>12 секунд</option></select></Row>
-          <Row title="DNS-провайдер" description="DNS over HTTPS через VPN в режиме TUN." disabled={!tun}><select aria-label="DNS-провайдер" disabled={locked || !tun} value={s.dnsProvider} onChange={(e) => apply({ dnsProvider: e.target.value as Settings['dnsProvider'] })}><option value="cloudflare">Cloudflare</option><option value="google">Google</option></select></Row>
-          <Row title="IPv6" description="Блокировать IPv6 или передавать его через туннель." disabled={!tun}><select aria-label="Режим IPv6" disabled={locked || !tun} value={s.tunIpv6} onChange={(e) => apply({ tunIpv6: e.target.value as Settings['tunIpv6'] })}><option value="block">Блокировать</option><option value="tunnel">Через TUN</option></select></Row>
-          <Row title="MTU" description="Размер пакета в TUN. 1400 подходит большинству сетей." disabled={!tun}><select aria-label="MTU" disabled={locked || !tun} value={s.tunMtu} onChange={(e) => apply({ tunMtu: Number(e.target.value) })}>{[1280, 1400, 1500].map((n) => <option key={n} value={n}>{n}</option>)}</select></Row>
+          <Row title="Тайм-аут проверки" description="Сколько ждать ответа сервера."><Select label="Тайм-аут проверки" disabled={locked} value={s.timeout} options={[{ value: 5000, label: '5 секунд' }, { value: 8000, label: '8 секунд' }, { value: 12000, label: '12 секунд' }]} change={(v) => apply({ timeout: v })} /></Row>
+          <Row title="DNS-провайдер" description="DNS over HTTPS через VPN в режиме TUN." disabled={!tun}><Select label="DNS-провайдер" disabled={locked || !tun} value={s.dnsProvider} options={[{ value: 'cloudflare', label: 'Cloudflare' }, { value: 'google', label: 'Google' }]} change={(v) => apply({ dnsProvider: v })} /></Row>
+          <Row title="IPv6" description="Блокировать IPv6 или передавать его через туннель." disabled={!tun}><Select label="Режим IPv6" disabled={locked || !tun} value={s.tunIpv6} options={[{ value: 'block', label: 'Блокировать' }, { value: 'tunnel', label: 'Через TUN' }]} change={(v) => apply({ tunIpv6: v })} /></Row>
+          <Row title="MTU" description="Размер пакета в TUN. 1400 подходит большинству сетей." disabled={!tun}><Select label="MTU" disabled={locked || !tun} value={s.tunMtu} options={[1280, 1400, 1500].map((n) => ({ value: n, label: String(n) }))} change={(v) => apply({ tunMtu: v })} /></Row>
           {state.connection.phase === 'connected' && <p className="hint">Сетевые изменения переподключат VPN. При ошибке вернутся прежние настройки.</p>}
         </>}
 
