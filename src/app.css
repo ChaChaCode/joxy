@@ -65,7 +65,8 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .tile-auto svg { fill: currentColor; }
 .tile-auto { background: var(--ink); color: var(--on-ink); }
 /* The Earth stands on its own, without the tile behind it; it keeps the flag's footprint so rows stay even. */
-.tile.tile-globe { background: transparent; box-shadow: none; border-radius: 0; }
+.country-flag.tile.tile-globe { background: transparent; box-shadow: none; border-radius: 0; overflow: visible; }
+.tile.tile-globe svg { overflow: visible; }
 
 /* Notices are quiet cards in the bottom-right corner; they never push the layout around. */
 /* Notices are quiet cards in the bottom-right corner; they never push the layout around and never cover the button. */

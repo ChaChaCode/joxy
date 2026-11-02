@@ -18,8 +18,8 @@ export function GlobeTile({ label = 'Страна не указана' }: { labe
       <radialGradient id={`${id}l`} cx="0.36" cy="0.32" r="0.85"><stop offset="0" stopColor="#7ee08f" /><stop offset="1" stopColor="#259b4a" /></radialGradient>
       <clipPath id={`${id}c`}><circle cx="12" cy="8.5" r="6.6" /></clipPath>
     </defs>
-    {/* Drawn at r 6.6 and scaled to fill the flag's height, now that no tile frames it. */}
-    <g transform="translate(12 8.5) scale(1.24) translate(-12 -8.5)">
+    {/* Drawn at r 6.6 and scaled past the flag's height: a disc reads smaller than a rectangle of the same height. */}
+    <g transform="translate(12 8.5) scale(1.5) translate(-12 -8.5)">
     <circle cx="12" cy="8.5" r="6.6" fill={`url(#${id}o)`} />
     <g clipPath={`url(#${id}c)`} fill={`url(#${id}l)`}>
       <path d="M5.3 3.6c1.4-1 3.4-.9 4.2.4.5.8-.2 1.6.4 2.4.5.7 1.5.9 1.4 1.9-.1.9-1.2 1.2-1.6 2-.4.8.1 1.9-.6 2.5-.9.7-1.7-.4-2-1.4-.4-1.2-1.6-1.6-1.9-2.9-.3-1.3-.9-3.9.1-4.9Z" />
