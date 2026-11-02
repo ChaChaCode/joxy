@@ -8,15 +8,17 @@ input, textarea, .log-line > span { user-select: text; }
 .topbar { display: flex; align-items: center; justify-content: space-between; height: 58px; padding: 0 8px 0 18px; -webkit-app-region: drag; flex-shrink: 0; }
 .topbar button, .picker-menu { -webkit-app-region: no-drag; }
 .topbar-right { display: flex; align-items: center; gap: 10px; height: 100%; }
-/* Window controls as two quiet dots; the glyphs and colour appear only when the pointer comes near. */
+/* Window controls as traffic lights: yellow minimizes, red closes, always in colour and without glyphs. The hit area
+   is larger than the dot; the dot darkens on hover and gives on press. */
 .window-controls { display: flex; align-items: center; gap: 2px; padding: 0 10px 0 4px; height: 100%; }
-.window-controls button { width: 22px; height: 22px; padding: 4.5px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--dot); background-clip: content-box; color: transparent; transition: background-color 150ms var(--ease), color 150ms var(--ease), transform var(--spring-fast) var(--spring); }
-.window-controls button svg { width: 8px; height: 8px; }
-.window-controls:hover .window-min, .window-min:focus-visible { background-color: var(--tertiary); color: var(--background); }
-.window-controls:hover .window-close, .window-close:focus-visible { background-color: #ff5f57; color: #6e0b06; }
+.window-controls button { width: 22px; height: 22px; padding: 4.5px; border-radius: 50%; background-clip: content-box; transition: filter 150ms var(--ease), transform var(--spring-fast) var(--spring); }
+.window-controls .window-min { background-color: #febc2e; }
+.window-controls .window-close { background-color: #ff5f57; }
+/* Higher than the old title-bar hover rules, whose background shorthand would recolour the dots and undo the clip. */
+.window-controls .window-min:hover { background: #febc2e content-box; filter: brightness(.88); }
+.window-controls .window-close:hover { background: #ff5f57 content-box; color: inherit; filter: brightness(.88); }
 .window-controls button:active { transform: scale(.88); transition: transform 60ms ease-out; }
-.window-controls .window-min:hover { background-color: var(--tertiary); background-clip: content-box; color: var(--background); }
-.window-controls .window-close:hover { background-color: #ff5f57; background-clip: content-box; color: #6e0b06; }
+.window-controls button:focus-visible { outline: 2px solid var(--text); outline-offset: -1px; }
 .link-button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; background: transparent; color: var(--text); font-size: 13px; font-weight: 500; }
 .link-button:hover { background: var(--surface-hover); }
 

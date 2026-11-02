@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Check, ChevronDown, CircleAlert, FileInput, LoaderCircle, Minus, Plus, Power, RefreshCw, ShieldCheck, X } from './icons';
+import { ArrowDown, ArrowUp, Check, ChevronDown, CircleAlert, FileInput, LoaderCircle, Plus, Power, RefreshCw, ShieldCheck, X } from './icons';
 import type { Profile, State } from './types';
 import { AutoTile, CountryFlag, countryName } from './CountryFlag';
 import { maskAddresses } from './privacy';
@@ -149,7 +149,7 @@ export default function App() {
       </div> : <span />}
       <div className="topbar-right">
         {view === 'home' && <button className="link-button" onClick={() => { setPickerOpen(false); setView('settings'); }}>Настройки</button>}
-        <div className="window-controls"><button aria-label="Свернуть" title="Свернуть" className="window-min" onClick={() => bridge?.minimize()}><Minus size={9} /></button><button aria-label="Закрыть" title="Закрыть" className="window-close" onClick={() => bridge?.close()}><X size={9} /></button></div>
+        <div className="window-controls"><button aria-label="Свернуть" title="Свернуть" className="window-min" onClick={() => bridge?.minimize()} /><button aria-label="Закрыть" title="Закрыть" className="window-close" onClick={() => bridge?.close()} /></div>
       </div>
     </header>
 
