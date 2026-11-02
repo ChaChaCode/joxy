@@ -69,13 +69,10 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .notices { position: fixed; right: 18px; bottom: 64px; z-index: 9; width: min(330px, calc(50vw - 152px)); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .notices:empty { display: none; }
 .card {
-  pointer-events: auto; position: relative; display: flex; gap: 12px; padding: 14px 16px 14px 14px; border-radius: 16px;
+  pointer-events: auto; position: relative; display: flex; gap: 12px; padding: 14px 16px; border-radius: 16px;
   background: color-mix(in srgb, var(--surface) 88%, transparent); -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%);
   border: 1px solid var(--line); box-shadow: var(--shadow-pop); font-size: 12px; animation: materialize var(--spring-fast) var(--spring) both;
 }
-.card-icon { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--surface-hover); color: var(--secondary); }
-.card.warning .card-icon { background: var(--warning-soft); color: var(--warning); }
-.card.danger .card-icon { background: var(--danger-soft); color: var(--danger); }
 .card-body { flex: 1; min-width: 0; padding-top: 1px; }
 .card strong { display: block; font-size: 13px; font-weight: 600; letter-spacing: -0.005em; padding-right: 18px; }
 .card p { margin-top: 3px; color: var(--secondary); font-size: 12px; line-height: 1.55; }

@@ -155,17 +155,17 @@ export default function App() {
 
     {/* Quiet cards in the bottom-right corner instead of banners across the window. */}
     <div className="notices" aria-live="polite">
-      {!bridge && <Card icon={<CircleAlert size={17} />} title="Предпросмотр">Для подключения откройте настольное приложение.</Card>}
-      {conflictShown && <Card tone="warning" icon={<CircleAlert size={17} />} title="Включён другой VPN" onClose={() => setHiddenConflict(conflictKey)}
+      {!bridge && <Card title="Предпросмотр">Для подключения откройте настольное приложение.</Card>}
+      {conflictShown && <Card tone="warning" title="Включён другой VPN" onClose={() => setHiddenConflict(conflictKey)}
         action={<button className="card-action" disabled={busy === 'environment'} onClick={() => run('environment', () => bridge!.environment())}><RefreshCw size={13} className={busy === 'environment' ? 'spin' : ''} />{busy === 'environment' ? 'Проверяем…' : 'Проверить снова'}</button>}>
         Отключите {foreignNames.length ? foreignNames.map((name, i) => <span key={name}>{i > 0 && ', '}<span className="chip">{privateText(name)}</span></span>) : 'его'}, пожалуйста. Пока он работает, JOXY не сможет подключиться.
       </Card>}
-      {state.core.error && <Card tone="danger" icon={<CircleAlert size={17} />} title="Ядро недоступно">{privateText(state.core.error)}</Card>}
-      {adminPrompt && mode === 'tun' && !state.environment.elevated && <Card tone="warning" icon={<ShieldCheck size={17} />} title="Права администратора не получены" onClose={() => setAdminPrompt(false)}
+      {state.core.error && <Card tone="danger" title="Ядро недоступно">{privateText(state.core.error)}</Card>}
+      {adminPrompt && mode === 'tun' && !state.environment.elevated && <Card tone="warning" title="Права администратора не получены" onClose={() => setAdminPrompt(false)}
         action={<button className="card-action" disabled={!!busy} onClick={elevateAndConnect}><ShieldCheck size={13} />Запросить снова</button>}>
         Без них Windows не даст создать адаптер TUN. Можно повторить запрос или выбрать системный прокси в настройках.
       </Card>}
-      {state.killSwitch?.armed && !connected && <Card tone="warning" icon={<ShieldCheck size={17} />} title="Интернет заблокирован"
+      {state.killSwitch?.armed && !connected && <Card tone="warning" title="Интернет заблокирован"
         action={<button className="card-action" disabled={!!busy || connecting} onClick={() => run('disconnect', () => bridge!.disconnect(), 'Блокировка снята')}>Снять блокировку</button>}>
         Kill switch держит блокировку, пока VPN не восстановится.
       </Card>}
@@ -195,9 +195,8 @@ export default function App() {
   </div>;
 }
 
-function Card({ tone = '', icon, title, children, action, onClose }: { tone?: '' | 'warning' | 'danger'; icon: ReactNode; title: string; children: ReactNode; action?: ReactNode; onClose?: () => void }) {
+function Card({ tone = '', title, children, action, onClose }: { tone?: '' | 'warning' | 'danger'; title: string; children: ReactNode; action?: ReactNode; onClose?: () => void }) {
   return <div className={`card ${tone}`} role="status">
-    <span className="card-icon" aria-hidden="true">{icon}</span>
     <div className="card-body"><strong>{title}</strong><p>{children}</p>{action}</div>
     {onClose && <button className="card-close" aria-label="Скрыть" onClick={onClose}><X size={13} /></button>}
   </div>;
