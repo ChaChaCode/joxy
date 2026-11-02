@@ -9,7 +9,7 @@ export function countryName(code?: string | null): string | null {
 
 // Tiles share the flag's size, corner and hairline, so a list of flags, auto and unknown servers lines up.
 // No country known: a small Earth in colour. Ocean with light from the top left, two stylised land masses clipped to
-// the disc, a highlight and a darker rim, centred in a flag-sized tile so rows of flags stay even.
+// the disc, a highlight and a darker rim; it takes a flag's place, without a tile behind it, so rows stay even.
 export function GlobeTile({ label = 'Страна не указана' }: { label?: string }) {
   const id = useId().replace(/:/g, '');
   return <span className="country-flag tile tile-globe" role="img" aria-label={label}><svg viewBox="0 0 24 17" aria-hidden="true">
@@ -18,6 +18,8 @@ export function GlobeTile({ label = 'Страна не указана' }: { labe
       <radialGradient id={`${id}l`} cx="0.36" cy="0.32" r="0.85"><stop offset="0" stopColor="#7ee08f" /><stop offset="1" stopColor="#259b4a" /></radialGradient>
       <clipPath id={`${id}c`}><circle cx="12" cy="8.5" r="6.6" /></clipPath>
     </defs>
+    {/* Drawn at r 6.6 and scaled to fill the flag's height, now that no tile frames it. */}
+    <g transform="translate(12 8.5) scale(1.24) translate(-12 -8.5)">
     <circle cx="12" cy="8.5" r="6.6" fill={`url(#${id}o)`} />
     <g clipPath={`url(#${id}c)`} fill={`url(#${id}l)`}>
       <path d="M5.3 3.6c1.4-1 3.4-.9 4.2.4.5.8-.2 1.6.4 2.4.5.7 1.5.9 1.4 1.9-.1.9-1.2 1.2-1.6 2-.4.8.1 1.9-.6 2.5-.9.7-1.7-.4-2-1.4-.4-1.2-1.6-1.6-1.9-2.9-.3-1.3-.9-3.9.1-4.9Z" />
@@ -25,6 +27,7 @@ export function GlobeTile({ label = 'Страна не указана' }: { labe
     </g>
     <ellipse cx="9.6" cy="5.6" rx="2.6" ry="1.6" fill="#fff" opacity="0.28" transform="rotate(-28 9.6 5.6)" />
     <circle cx="12" cy="8.5" r="6.35" fill="none" stroke="#0b2f7a" strokeOpacity="0.35" strokeWidth="0.5" />
+    </g>
   </svg></span>;
 }
 // Auto selection: two sparkles on ink, "the best one is picked for you".
