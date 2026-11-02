@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -33,22 +34,24 @@ var (
 )
 
 const (
-	rpcAuthnWinNT         = 10
-	sessionFlagDynamic    = 1
-	typeUint8             = 1
-	typeUint16            = 2
-	typeUint32            = 3
-	typeUint64            = 4
-	typeByteBlob          = 12
-	typeV4AddrMask        = 0x100
-	typeV6AddrMask        = 0x101
-	matchEqual            = 0
-	matchFlagsAllSet      = 6
-	conditionFlagLoopback = 1
-	actionBlock           = 0x1001
-	actionPermit          = 0x1002
-	protocolUDP           = 17
-	protocolICMPv6        = 58
+	rpcAuthnWinNT          = 10
+	sessionFlagDynamic     = 1
+	typeUint8              = 1
+	typeUint16             = 2
+	typeUint32             = 3
+	typeUint64             = 4
+	typeByteBlob           = 12
+	typeSecurityDescriptor = 14
+	typeV4AddrMask         = 0x100
+	typeV6AddrMask         = 0x101
+	matchEqual             = 0
+	matchFlagsAllSet       = 6
+	conditionFlagLoopback  = 1
+	actionBlock            = 0x1001
+	actionPermit           = 0x1002
+	protocolTCP            = 6
+	protocolUDP            = 17
+	protocolICMPv6         = 58
 )
 
 var (
@@ -64,7 +67,11 @@ var (
 	fieldRemoteAddress  = windows.GUID{Data1: 0xb235ae9a, Data2: 0x1d64, Data3: 0x49b8, Data4: [8]byte{0xa4, 0x4c, 0x5f, 0xf3, 0xd9, 0x09, 0x50, 0x45}}
 	fieldRemotePort     = windows.GUID{Data1: 0xc35a604d, Data2: 0xd22b, Data3: 0x4e1a, Data4: [8]byte{0x91, 0xb4, 0x68, 0xf6, 0x74, 0xee, 0x67, 0x4b}}
 	fieldAppID          = windows.GUID{Data1: 0xd78e1e87, Data2: 0x8644, Data3: 0x4ea5, Data4: [8]byte{0x94, 0x37, 0xd8, 0x09, 0xec, 0xef, 0xc9, 0x71}}
+	fieldUserID         = windows.GUID{Data1: 0xaf043a0a, Data2: 0xb34d, Data3: 0x4f86, Data4: [8]byte{0x97, 0x9c, 0xc9, 0x03, 0x71, 0xaf, 0x6e, 0x66}}
 )
+
+// The service SID Windows gives the DNS Client service (Dnscache) in its token.
+const dnsClientSID = "S-1-5-80-859482183-879914841-863379149-1145462774-2388618682"
 
 type displayData struct{ name, description *uint16 }
 
@@ -165,10 +172,12 @@ type rule struct {
 }
 
 var (
-	allLayers = []windows.GUID{layerConnectV4, layerConnectV6, layerAcceptV4, layerAcceptV6}
-	lan4      = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("172.16.0.0/12"), netip.MustParsePrefix("192.168.0.0/16"), netip.MustParsePrefix("169.254.0.0/16"), netip.MustParsePrefix("224.0.0.0/4"), netip.MustParsePrefix("255.255.255.255/32")}
-	lan6      = []netip.Prefix{netip.MustParsePrefix("fe80::/10"), netip.MustParsePrefix("fc00::/7"), netip.MustParsePrefix("ff00::/8")}
-	link6     = []netip.Prefix{netip.MustParsePrefix("fe80::/10"), netip.MustParsePrefix("ff02::/16")}
+	allLayers     = []windows.GUID{layerConnectV4, layerConnectV6, layerAcceptV4, layerAcceptV6}
+	connectLayers = []windows.GUID{layerConnectV4, layerConnectV6}
+	v6Layers      = []windows.GUID{layerConnectV6, layerAcceptV6}
+	lan4          = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("172.16.0.0/12"), netip.MustParsePrefix("192.168.0.0/16"), netip.MustParsePrefix("169.254.0.0/16"), netip.MustParsePrefix("224.0.0.0/4"), netip.MustParsePrefix("255.255.255.255/32")}
+	lan6          = []netip.Prefix{netip.MustParsePrefix("fe80::/10"), netip.MustParsePrefix("fc00::/7"), netip.MustParsePrefix("ff00::/8")}
+	link6         = []netip.Prefix{netip.MustParsePrefix("fe80::/10"), netip.MustParsePrefix("ff02::/16")}
 )
 
 // Weights order the rules inside our sublayer: the highest matching one decides there.
@@ -179,8 +188,15 @@ const (
 	weightLANDNS   = 12
 	weightLAN      = 11
 	weightLink     = 10
+	weightDNS      = 2
 	weightBlock    = 0
 )
+
+// Some systems refuse to commit a WFP transaction of more than five filters, failing with FWP_E_IN_USE ("The object
+// is referenced by other objects"), whatever the filters are. Filters therefore go in in batches of this size,
+// permits before blocks, so no moment between two batches blocks more than the finished set would. If a batch fails,
+// closing the dynamic session takes the batches already committed with it.
+const batchSize = 5
 
 type guard struct {
 	mu       sync.Mutex
@@ -234,7 +250,11 @@ func (k *keep) prefixes(field windows.GUID, list []netip.Prefix) []condition {
 
 func arm(cfg *config) (*guard, error) {
 	g := &guard{tunName: cfg.Tun}
-	s := session{display: displayData{name: utf16("JOXY kill switch")}, flags: sessionFlagDynamic, txnWaitTimeout: 10000}
+	name := "JOXY kill switch"
+	if cfg.LeaksOnly {
+		name = "JOXY leak protection"
+	}
+	s := session{display: displayData{name: utf16(name)}, flags: sessionFlagDynamic, txnWaitTimeout: 10000}
 	if err := call(procEngineOpen, 0, rpcAuthnWinNT, 0, uintptr(unsafe.Pointer(&s)), uintptr(unsafe.Pointer(&g.engine))); err != nil {
 		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 			return nil, fmt.Errorf("the filtering engine refused access: %w", err)
@@ -256,24 +276,35 @@ func arm(cfg *config) (*guard, error) {
 		g.close()
 		return nil, err
 	}
-	err = g.transaction(func(k *keep) error {
-		var err error
-		if g.sublayer, err = windows.GenerateGUID(); err != nil {
-			return err
-		}
-		sl := sublayer{key: g.sublayer, display: displayData{name: utf16("JOXY kill switch")}, weight: 0xffff}
-		if err = call(procSubLayerAdd, g.engine, uintptr(unsafe.Pointer(&sl)), 0); err != nil {
+	k := &keep{}
+	defer k.pinner.Unpin()
+	if g.sublayer, err = windows.GenerateGUID(); err != nil {
+		g.close()
+		return nil, err
+	}
+	err = g.transaction(func() error {
+		sl := sublayer{key: g.sublayer, display: displayData{name: utf16(name)}, weight: 0xffff}
+		if err := call(procSubLayerAdd, g.engine, uintptr(unsafe.Pointer(&sl)), 0); err != nil {
 			return fmt.Errorf("add the sublayer: %w", err)
 		}
-		if _, err = g.install(k, baseRules(k, cfg, apps)); err != nil {
-			return err
-		}
-		g.tunIDs, err = g.install(k, tunRules(k, luids))
-		return err
+		return nil
 	})
+	// The tunnel's permit goes in first; the other rules follow with their permits ahead of their blocks.
+	if err == nil {
+		g.tunIDs, err = g.install(tunRules(k, luids))
+	}
+	if err == nil {
+		rules := baseRules(k, cfg, apps)
+		if cfg.LeaksOnly {
+			rules, err = leakRules(k, cfg, apps)
+		}
+		if err == nil {
+			_, err = g.install(permitsFirst(rules))
+		}
+	}
 	if err != nil {
 		g.close()
-		return nil, fmt.Errorf("install the kill switch: %w", err)
+		return nil, fmt.Errorf("install the filters: %w", err)
 	}
 	g.tunLUIDs = luids
 	return g, nil
@@ -318,6 +349,57 @@ func baseRules(k *keep, cfg *config, apps []*byteBlob) []rule {
 	return rules
 }
 
+// leakRules keep only leaks inside the tunnel instead of all traffic. With BlockDNS, connections to the ports of DNS,
+// DNS over TLS and DNS over QUIC, and from Windows 11 on the DNS Client service, which may also query over HTTPS to
+// any port, may not leave through another interface: Windows sends a query to the servers of every interface, an
+// on-link resolver such as the router included. With BlockIPv6 nothing of IPv6 leaves either, for a tunnel that
+// carries none.
+func leakRules(k *keep, cfg *config, apps []*byteBlob) ([]rule, error) {
+	var permitted []condition
+	for _, blob := range apps {
+		permitted = append(permitted, condition{field: fieldAppID, match: matchEqual, value: value{typ: typeByteBlob, data: uintptr(unsafe.Pointer(blob))}})
+	}
+	dns := []condition{k.uint8(fieldProtocol, protocolUDP), k.uint8(fieldProtocol, protocolTCP), k.uint16(fieldRemotePort, 53), k.uint16(fieldRemotePort, 853)}
+	rules := []rule{
+		{"permit the core", allLayers, weightApps, actionPermit, permitted},
+		{"permit loopback", allLayers, weightLoopback, actionPermit, []condition{{field: fieldFlags, match: matchFlagsAllSet, value: value{typ: typeUint32, data: conditionFlagLoopback}}}},
+	}
+	if cfg.BlockDNS {
+		rules = append(rules, rule{"block DNS outside the tunnel", connectLayers, weightDNS, actionBlock, dns})
+	}
+	if _, _, build := windows.RtlGetNtVersionNumbers(); cfg.BlockDNS && build >= 20348 {
+		client, err := k.service(dnsClientSID)
+		if err != nil {
+			return nil, err
+		}
+		// mDNS and LLMNR stay on the local link.
+		rules = append(rules,
+			rule{"permit the DNS Client service's mDNS and LLMNR", connectLayers, weightLAN, actionPermit, []condition{client, k.uint16(fieldRemotePort, 5353), k.uint16(fieldRemotePort, 5355)}},
+			rule{"block the DNS Client service outside the tunnel", connectLayers, weightDNS, actionBlock, []condition{client}},
+		)
+	}
+	if cfg.BlockIPv6 {
+		udp := k.uint8(fieldProtocol, protocolUDP)
+		rules = append(rules,
+			rule{"permit DHCPv6", v6Layers, weightLink, actionPermit, []condition{udp, k.uint16(fieldLocalPort, 546), k.uint16(fieldRemotePort, 547)}},
+			rule{"permit neighbor discovery", v6Layers, weightLink, actionPermit, append([]condition{k.uint8(fieldProtocol, protocolICMPv6)}, k.prefixes(fieldRemoteAddress, link6)...)},
+			rule{"block IPv6", v6Layers, weightBlock, actionBlock, nil},
+		)
+	}
+	return rules, nil
+}
+
+// service matches connections of the service with that SID: the descriptor grants it the right to match.
+func (k *keep) service(sid string) (condition, error) {
+	sd, err := windows.SecurityDescriptorFromString("O:SYG:SYD:(A;;CCRC;;;" + sid + ")")
+	if err != nil {
+		return condition{}, err
+	}
+	blob := &byteBlob{size: sd.Length(), data: (*byte)(unsafe.Pointer(sd))}
+	k.pinner.Pin(sd)
+	return condition{field: fieldUserID, match: matchEqual, value: value{typ: typeSecurityDescriptor, data: k.ptr(unsafe.Pointer(blob))}}, nil
+}
+
 func tunRules(k *keep, luids []uint64) []rule {
 	if len(luids) == 0 {
 		return nil
@@ -329,13 +411,26 @@ func tunRules(k *keep, luids []uint64) []rule {
 	return []rule{{"permit the tunnel", allLayers, weightTun, actionPermit, local}}
 }
 
-func (g *guard) transaction(fn func(*keep) error) error {
-	k := &keep{}
-	defer k.pinner.Unpin()
+func permitsFirst(rules []rule) []rule {
+	out := slices.Clone(rules)
+	slices.SortStableFunc(out, func(a, b rule) int {
+		return cmp.Compare(boolInt(a.action != actionPermit), boolInt(b.action != actionPermit))
+	})
+	return out
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func (g *guard) transaction(fn func() error) error {
 	if err := call(procTransactionBegin, g.engine, 0); err != nil {
 		return fmt.Errorf("begin a transaction: %w", err)
 	}
-	if err := fn(k); err != nil {
+	if err := fn(); err != nil {
 		procTransactionAbort.Call(g.engine)
 		return err
 	}
@@ -346,8 +441,12 @@ func (g *guard) transaction(fn func(*keep) error) error {
 	return nil
 }
 
-func (g *guard) install(k *keep, rules []rule) ([]uint64, error) {
-	var ids []uint64
+// install adds the rules in order, in transactions of at most batchSize filters, and returns the filter IDs.
+func (g *guard) install(rules []rule) ([]uint64, error) {
+	var pinner runtime.Pinner
+	defer pinner.Unpin()
+	var filters []filter
+	var names []string
 	for _, r := range rules {
 		for _, layer := range r.layers {
 			f := filter{
@@ -360,18 +459,48 @@ func (g *guard) install(k *keep, rules []rule) ([]uint64, error) {
 			if len(r.conditions) > 0 {
 				f.numConditions = uint32(len(r.conditions))
 				f.conditions = &r.conditions[0]
-				k.pinner.Pin(f.conditions)
+				pinner.Pin(f.conditions)
 			}
-			var id uint64
-			err := call(procFilterAdd, g.engine, uintptr(unsafe.Pointer(&f)), 0, uintptr(unsafe.Pointer(&id)))
-			runtime.KeepAlive(r.conditions)
-			if err != nil {
-				return nil, fmt.Errorf("add the filter %q: %w", r.name, err)
-			}
-			ids = append(ids, id)
+			filters = append(filters, f)
+			names = append(names, r.name)
 		}
 	}
+	var ids []uint64
+	for batch := range slices.Chunk(filters, batchSize) {
+		err := g.transaction(func() error {
+			for i := range batch {
+				var id uint64
+				if err := call(procFilterAdd, g.engine, uintptr(unsafe.Pointer(&batch[i])), 0, uintptr(unsafe.Pointer(&id))); err != nil {
+					return fmt.Errorf("add the filter %q: %w", names[len(ids)], err)
+				}
+				ids = append(ids, id)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	runtime.KeepAlive(rules)
 	return ids, nil
+}
+
+// remove deletes filters in transactions of at most batchSize.
+func (g *guard) remove(ids []uint64) error {
+	for batch := range slices.Chunk(ids, batchSize) {
+		err := g.transaction(func() error {
+			for _, id := range batch {
+				if err := call(procFilterDeleteByID, g.engine, uintptr(id)); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // findTun returns the LUIDs of adapters named like the TUN; Windows calls a second instance "JOXY 2".
@@ -420,22 +549,17 @@ func (g *guard) followTun(done chan<- struct{}) {
 		}
 		g.mu.Lock()
 		if !slices.Equal(luids, g.tunLUIDs) {
-			var ids []uint64
-			err = g.transaction(func(k *keep) error {
-				var err error
-				if ids, err = g.install(k, tunRules(k, luids)); err != nil {
-					return err
-				}
-				for _, id := range g.tunIDs {
-					if err = call(procFilterDeleteByID, g.engine, uintptr(id)); err != nil {
-						return fmt.Errorf("remove the old tunnel permit: %w", err)
-					}
-				}
-				return nil
-			})
+			// The new permit goes in before the old one goes out, so the tunnel is never blocked in between.
+			k := &keep{}
+			ids, err := g.install(tunRules(k, luids))
+			k.pinner.Unpin()
 			if err == nil {
+				if err = g.remove(g.tunIDs); err != nil {
+					err = fmt.Errorf("remove the old tunnel permit: %w", err)
+				}
 				g.tunLUIDs, g.tunIDs = luids, ids
-			} else {
+			}
+			if err != nil {
 				say("WARN", err.Error())
 			}
 		}

@@ -17,7 +17,7 @@ export interface State {
   version: string; profiles: Profile[];
   sources: Source[];
   selectedId: string; settings: Settings; checking: boolean;
-  connection: { phase: 'idle' | 'connecting' | 'connected' | 'error'; profileId: string | null; since: string | null; exitIP: string | null; latency: number | null; systemProxy: boolean; mode?: Settings['mode']; error?: string; errorCode?: 'vpn-conflict'; ports?: { http: number; socks: number } };
+  connection: { phase: 'idle' | 'connecting' | 'connected' | 'error'; profileId: string | null; since: string | null; exitIP: string | null; latency: number | null; systemProxy: boolean; mode?: Settings['mode']; error?: string; errorCode?: 'vpn-conflict' | 'wfp-blocked'; ports?: { http: number; socks: number } };
   stats: { down: number; up: number; downRate: number; upRate: number; history: { down: number; up: number }[] };
   logs: { id: string; time: string; level: 'info' | 'warning' | 'error'; message: string }[];
   environment: { interface: string; interfaces: string[]; tunActive: boolean; windows: boolean; detectionFailed?: boolean; elevated?: boolean; recoveryRequired?: boolean; foreignTunnels?: { name: string; routeCount: number }[] };

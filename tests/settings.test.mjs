@@ -17,12 +17,11 @@ test('routing rules accept domains and IPv4/IPv6 CIDRs without accepting URLs or
   for (const value of [['192.0.2.0/33'], ['2001:db8::/129'], ['192.0.2.0/'], ['192.0.2.0/0x10'], ['192.0.2.0/1/2'], ['example.com:443'], ['all'], Array(129).fill('example.com')]) assert.throws(() => parseDirectRules(value));
 });
 
-test('TUN config routes DNS first, binds core sockets and blocks the unrouted IP family', () => {
+test('TUN config routes DNS first and binds core sockets', () => {
   const profile = parseVless('vless://00000000-0000-4000-8000-000000000000@192.0.2.10:443?security=tls&sni=example.com&type=tcp#test');
   const config = buildConfig(profile, { http: 31001, socks: 31002, metrics: 31003 }, 'Ethernet', { mode: 'tun', directRules: ['example.com', '203.0.113.0/24'] });
   const tun = config.inbounds.find((i) => i.protocol === 'tun');
   assert.deepEqual(tun.settings.autoSystemRoutingTable, ['0.0.0.0/1', '128.0.0.0/1']);
-  assert.deepEqual(tun.settings.autoSystemWfpBlockLeak, ['dns', 'misconfigtun']);
   assert.equal(tun.settings.autoOutboundsInterface, 'Ethernet');
   assert.ok(config.inbounds.filter((i) => i.protocol !== 'tun').every((i) => i.listen === '127.0.0.1'));
   assert.equal(config.routing.rules[0].outboundTag, 'dns-out');
@@ -35,7 +34,6 @@ test('TUN config routes DNS first, binds core sockets and blocks the unrouted IP
   assert.equal(dual.inbounds.at(-1).settings.autoSystemRoutingTable.length, 4);
   assert.equal(dual.dns.servers[0], 'https://8.8.8.8/dns-query');
   assert.equal(dual.dns.queryStrategy, 'UseIP');
-  assert.deepEqual(dual.inbounds.at(-1).settings.autoSystemWfpBlockLeak, ['misconfigtun']);
   assert.equal(profile.outbound.streamSettings.sockopt, undefined);
 });
 

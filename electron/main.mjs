@@ -53,7 +53,7 @@ async function start() {
     try { await elevate(app, false); quitting = true; app.quit(); return; }
     catch { store.data.settings.elevateOnStart = false; await store.save(); }
   }
-  controller = new Controller({ store, binaryDir: path.join(resources, 'xray'), runtimeDir: path.join(dataDir, 'runtime'), proxy: new SystemProxy(path.join(resources, 'windows-proxy.ps1'), dataDir), tunGuard: new TunGuard(path.join(resources, 'windows-tun.ps1'), dataDir), killSwitch: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe')), version: app.getVersion() });
+  controller = new Controller({ store, binaryDir: path.join(resources, 'xray'), runtimeDir: path.join(dataDir, 'runtime'), proxy: new SystemProxy(path.join(resources, 'windows-proxy.ps1'), dataDir), tunGuard: new TunGuard(path.join(resources, 'windows-tun.ps1'), dataDir), killSwitch: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe')), leakGuard: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe'), undefined, 'Защита от утечек'), version: app.getVersion() });
   await controller.initialize();
   if (tun && controller.env.elevated && store.data.settings.elevateOnStart === false) { store.data.settings.elevateOnStart = true; await store.save(); }
   const bootstrapIndex = process.argv.indexOf('--bootstrap');

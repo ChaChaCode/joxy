@@ -160,6 +160,10 @@ export default function App() {
         action={<button className="card-action" disabled={busy === 'environment'} onClick={() => run('environment', () => bridge!.environment())}><RefreshCw size={13} className={busy === 'environment' ? 'spin' : ''} />{busy === 'environment' ? 'Проверяем…' : 'Проверить снова'}</button>}>
         Отключите {foreignNames.length ? foreignNames.map((name, i) => <span key={name}>{i > 0 && ', '}<span className="chip">{privateText(name)}</span></span>) : 'его'}, пожалуйста. Пока он работает, JOXY не сможет подключиться.
       </Card>}
+      {failed && state.connection.errorCode === 'wfp-blocked' && state.settings.tunDnsProtection !== false && <Card tone="warning" title="Защита DNS не включилась"
+        action={<button className="card-action" disabled={!!busy} onClick={() => run('connection', async () => { await bridge!.settings({ tunDnsProtection: false }); await bridge!.connect(); })}>Подключиться без защиты DNS</button>}>
+        Windows не приняла правила фильтрации, которые не пускают запросы DNS мимо VPN. Можно подключиться без защиты, а вернуть её — в настройках.
+      </Card>}
       {state.core.error && <Card tone="danger" title="Ядро недоступно">{privateText(state.core.error)}</Card>}
       {adminPrompt && mode === 'tun' && !state.environment.elevated && <Card tone="warning" title="Права администратора не получены" onClose={() => setAdminPrompt(false)}
         action={<button className="card-action" disabled={!!busy} onClick={elevateAndConnect}><ShieldCheck size={13} />Запросить снова</button>}>
@@ -177,7 +181,7 @@ export default function App() {
         <div className="status" aria-live="polite">
           <h1>{connected && <span className="live-dot" />}{title}</h1>
           <div className="timer mono">{connected ? elapsed(state.connection.since, now) : '--:--:--'}</div>
-          {failed && !(state.connection.errorCode === 'vpn-conflict' && state.environment.tunActive) && <p className="connection-error" role="alert">{privateText(state.connection.error)}</p>}
+          {failed && !(state.connection.errorCode === 'vpn-conflict' && state.environment.tunActive) && !(state.connection.errorCode === 'wfp-blocked' && state.settings.tunDnsProtection !== false) && <p className="connection-error" role="alert">{privateText(state.connection.error)}</p>}
           {state.profiles.length
             ? <button className={`power ${connected ? 'on' : ''}`} aria-label={connected ? 'Отключиться' : connecting ? 'Подключение…' : 'Подключиться'} aria-pressed={connected} disabled={connecting || !state.core.ready || !!busy} onClick={() => { if (!connected && mode === 'tun' && !state.environment.elevated) { elevateAndConnect(); return; } run('connection', () => connected ? bridge!.disconnect() : bridge!.connect()); }}>{connecting ? <LoaderCircle className="spin" size={28} /> : <Power size={28} />}</button>
             : <button className="button primary add-first" onClick={openImport}><Plus size={16} />Добавить подписку</button>}

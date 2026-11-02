@@ -29,6 +29,11 @@ type config struct {
 	Tun string `json:"tun"`
 	// Private and link-local destinations pass, except DNS: a router would forward it outside the tunnel.
 	AllowLAN bool `json:"allowLan"`
+	// Block only leaks instead of everything, for a session without the kill switch: DNS outside the tunnel with
+	// BlockDNS (JOXY's DNS protection), IPv6 beyond loopback and the local link with BlockIPv6 (a tunnel without IPv6).
+	LeaksOnly bool `json:"leaksOnly"`
+	BlockDNS  bool `json:"blockDns"`
+	BlockIPv6 bool `json:"blockIpv6"`
 }
 
 var output sync.Mutex
@@ -59,6 +64,9 @@ func readConfig(input *bufio.Reader) (*config, error) {
 			if !filepath.IsAbs(app) {
 				return nil, fmt.Errorf("permitted executable %q is not an absolute path", app)
 			}
+		}
+		if cfg.LeaksOnly && !cfg.BlockDNS && !cfg.BlockIPv6 {
+			return nil, errors.New("leaksOnly needs blockDns or blockIpv6")
 		}
 		return &cfg, nil
 	case <-time.After(10 * time.Second):
@@ -96,7 +104,7 @@ func main() {
 		os.Exit(1)
 	}
 	if !windows.GetCurrentProcessToken().IsElevated() {
-		say("ERROR", "the kill switch needs administrator rights")
+		say("ERROR", "the guard needs administrator rights")
 		os.Exit(1)
 	}
 	input := bufio.NewReader(os.Stdin)

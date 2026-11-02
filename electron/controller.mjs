@@ -11,8 +11,6 @@ import { environment, fetchSubscription } from './network.mjs';
 import { settingsPatch, networkKeys, normalizeSettings } from './settings.mjs';
 import { version as appVersion } from './version.mjs';
 
-// Xray failing to install its Windows Filtering Platform leak filters, e.g. while another VPN holds its own.
-const wfpConflict = /autoSystemWfpBlockLeak|Fwpm[A-Za-z]+0 failed/;
 const rank = (p) => p.transport === 'xhttp' ? 0 : p.transport === 'raw' && p.fragment ? 1 : p.transport === 'raw' ? 2 : 3;
 export function redact(text) {
   return String(text).replace(/\b[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}\b/gi, '[uuid]')
@@ -21,7 +19,7 @@ export function redact(text) {
 }
 
 export class Controller extends EventEmitter {
-  constructor({ store, binaryDir, runtimeDir, proxy, tunGuard = null, killSwitch = null, engineFactory, environmentReader, subscriptionFetcher = fetchSubscription, hostResolver = (host) => lookup(host, { family: 4 }).then((r) => r.address), version = appVersion }) {
+  constructor({ store, binaryDir, runtimeDir, proxy, tunGuard = null, killSwitch = null, leakGuard = null, engineFactory, environmentReader, subscriptionFetcher = fetchSubscription, hostResolver = (host) => lookup(host, { family: 4 }).then((r) => r.address), version = appVersion }) {
     super(); this.store = store; this.binaryDir = binaryDir; this.binary = path.join(binaryDir, 'xray.exe'); this.runtimeDir = runtimeDir; this.proxy = proxy;
     this.connection = { phase: 'idle', profileId: null, since: null, exitIP: null, latency: null, systemProxy: false };
     this.stats = { down: 0, up: 0, downRate: 0, upRate: 0, history: [] };
@@ -31,6 +29,11 @@ export class Controller extends EventEmitter {
     this.tunGuard = tunGuard; this.killSwitch = killSwitch; this.hostResolver = hostResolver; this.resolvedHosts = new Map(); this.recovering = false;
     killSwitch?.on('failed', (e) => this.log('error', e.message));
     killSwitch?.on('warning', (message) => this.log('warning', `Kill switch: ${message}`));
+    // The leak protection: the same guard, blocking only DNS (the DNS protection) and, for a TUN without IPv6, IPv6
+    // outside the TUN. The kill switch already blocks all of that, so only one of them runs at a time.
+    this.leakGuard = leakGuard;
+    leakGuard?.on('failed', (e) => this.log('error', e.message));
+    leakGuard?.on('warning', (message) => this.log('warning', `Защита от утечек: ${message}`));
     this.engineFactory = engineFactory || (() => new XrayEngine(this.binary, this.runtimeDir, this.tunGuard));
     this.environmentReader = environmentReader || environment;
     this.subscriptionFetcher = subscriptionFetcher;
@@ -156,6 +159,15 @@ export class Controller extends EventEmitter {
     this.killSwitchLan = allowLan;
     this.log('info', 'Kill switch включён: трафик мимо VPN заблокирован.'); this.publish();
   }
+  leaks() { const s = this.store.data.settings; return { blockDns: s.tunDnsProtection !== false, blockIpv6: s.tunIpv6 !== 'tunnel' }; }
+  wantsLeakGuard() { const l = this.leaks(); return !!this.leakGuard && normalizeSettings(this.store.data.settings).mode === 'tun' && (l.blockDns || l.blockIpv6) && !this.wantsKillSwitch(); }
+  async armLeakGuard() {
+    if (!this.wantsLeakGuard() || this.leakGuard.armed) return;
+    const leaks = this.leaks();
+    try { await this.leakGuard.arm({ apps: [this.binary], tun: 'JOXY', allowLan: false, leaksOnly: true, ...leaks }); }
+    catch (e) { throw Object.assign(new Error(`${leaks.blockDns ? 'Защита DNS' : 'Блокировка IPv6'} не включилась: Windows не приняла правила фильтрации (${e.message.replace(/^Защита от утечек:\s*/, '')}).`), { code: 'WFP_BLOCKED' }); }
+    this.log('info', `Защита от утечек включена: мимо VPN заблокированы ${[leaks.blockDns && 'запросы DNS', leaks.blockIpv6 && 'IPv6'].filter(Boolean).join(' и ')}.`);
+  }
   async disarmKillSwitch() {
     if (!this.killSwitch?.armed) return;
     await this.killSwitch.disarm();
@@ -163,10 +175,16 @@ export class Controller extends EventEmitter {
   }
   // Brings the guard in line with settings changed while connected: it needs no reconnect of its own.
   async syncKillSwitch() {
-    if (!this.killSwitch) return;
-    if (!this.wantsKillSwitch()) return this.disarmKillSwitch();
-    if (this.killSwitch.armed && this.killSwitchLan !== (this.store.data.settings.bypassLan !== false)) await this.disarmKillSwitch();
-    if (this.connection.phase === 'connected' && this.connection.mode === 'tun') await this.armKillSwitch();
+    const tun = this.connection.phase === 'connected' && this.connection.mode === 'tun';
+    if (this.killSwitch) {
+      if (!this.wantsKillSwitch()) await this.disarmKillSwitch();
+      else {
+        if (this.killSwitch.armed && this.killSwitchLan !== (this.store.data.settings.bypassLan !== false)) await this.disarmKillSwitch();
+        if (tun) await this.armKillSwitch();
+      }
+    }
+    if (this.wantsLeakGuard() && tun) await this.armLeakGuard().catch((e) => this.log('error', e.message));
+    else if (!this.wantsLeakGuard()) await this.leakGuard?.disarm();
   }
   // While the kill switch blocks the system resolver, a reconnect reuses the address the server last had.
   async resolveServer(host) {
@@ -237,6 +255,7 @@ export class Controller extends EventEmitter {
         engine.on('log', (line) => { if (/warning|error|failed/i.test(line)) this.log('warning', line); });
         try {
           await engine.start(p, this.outboundInterface(), { ...d.settings, weakHostSend: this.env.weakHostSend || [], resolve: (host) => this.resolveServer(host) });
+          if (mode === 'tun') await this.armLeakGuard();
           const latency = await engine.probe(d.settings.timeout);
           p.lastTest = { status: 'ok', latency, checkedAt: new Date().toISOString() };
           const exitIP = await engine.exitIP().catch(() => null);
@@ -251,17 +270,16 @@ export class Controller extends EventEmitter {
           return;
         } catch (e) {
           lastError = e;
-          await this.proxy.restore().catch(() => {}); await engine.stop();
-          if (wfpConflict.test(e.message)) {
-            // The leak filters are Windows-wide, not the server's fault: another server would fail the same way. Most
-            // often another VPN raised its TUN between our check and the start, so the network is read again.
-            this.log('warning', e.message);
+          await this.proxy.restore().catch(() => {}); await engine.stop(); await this.leakGuard?.disarm();
+          if (e.code === 'WFP_BLOCKED') {
+            // The filters are Windows-wide, not the server's fault: another server would fail the same way. Another
+            // VPN may have raised its TUN between our check and the start, so the network is read again.
             await this.readEnvironment().catch(() => {});
             if (this.env.tunActive) {
               const names = this.env.foreignTunnels?.map((t) => t.name).join(', ');
               throw Object.assign(new Error(`Обнаружены маршруты TUN другого VPN${names ? ` (${names})` : ''}. Отключите его и повторите подключение.`), { code: 'VPN_CONFLICT' });
             }
-            throw new Error('Windows не дала включить защиту DNS: её правила фильтрации заняты другой программой, например VPN или фаерволом. Закройте её или выключите «Защиту DNS» в настройках.');
+            throw e;
           }
           p.lastTest = { status: 'error', message: redact(e.message), checkedAt: new Date().toISOString() };
           this.log('warning', `${p.name}: ${e.message}`);
@@ -269,7 +287,7 @@ export class Controller extends EventEmitter {
       }
       throw lastError || new Error('Подходящих профилей не найдено.');
     } catch (e) {
-      this.engine = null; this.connection = { phase: 'error', profileId: null, since: null, exitIP: null, latency: null, systemProxy: false, error: redact(e.message), errorCode: e.code === 'VPN_CONFLICT' ? 'vpn-conflict' : undefined };
+      this.engine = null; this.connection = { phase: 'error', profileId: null, since: null, exitIP: null, latency: null, systemProxy: false, error: redact(e.message), errorCode: e.code === 'VPN_CONFLICT' ? 'vpn-conflict' : e.code === 'WFP_BLOCKED' ? 'wfp-blocked' : undefined };
       this.log('error', e.message);
       // A first attempt that fails must not leave the user offline; only an established session keeps the block.
       if (!this.recovering) await this.disarmKillSwitch().catch((err) => this.log('error', err.message));
@@ -283,6 +301,7 @@ export class Controller extends EventEmitter {
     try {
       await this.proxy.restore();
       if (this.engine) await this.engine.stop(); this.engine = null;
+      await this.leakGuard?.disarm();
       this.connection = { phase: 'idle', profileId: null, since: null, exitIP: null, latency: null, systemProxy: false };
       this.stats.downRate = 0; this.stats.upRate = 0;
       this.log('info', 'Отключено. Предыдущие настройки прокси восстановлены.');
@@ -293,6 +312,8 @@ export class Controller extends EventEmitter {
     const crashed = this.connection.profileId;
     await this.proxy.restore().catch((e) => this.log('error', e.message));
     await this.tunGuard?.restore().catch((e) => this.log('error', e.message));
+    // Without the TUN the protection would only cut DNS off; the reconnect arms it again.
+    await this.leakGuard?.disarm();
     this.engine = null; this.connection = { ...this.connection, phase: 'error', systemProxy: false, error: 'Ядро Xray неожиданно завершилось. Перезапускаем.' };
     this.log('error', this.connection.error);
     if (crashed && !this.closed) { this.pendingRecovery = crashed; setTimeout(() => this.health().catch((e) => this.log('error', e.message)), 1500); }
@@ -365,6 +386,6 @@ export class Controller extends EventEmitter {
     this.testAbort?.abort();
     if (this.engine) await this.engine.stop();
     await this.operationDone; await this.testsDone; await this.refreshDone.catch(() => {});
-    await this.proxy.restore(); if (this.engine) await this.engine.stop(); await this.killSwitch?.disarm(); await this.store.save();
+    await this.proxy.restore(); if (this.engine) await this.engine.stop(); await this.killSwitch?.disarm(); await this.leakGuard?.disarm(); await this.store.save();
   }
 }

@@ -78,3 +78,9 @@ test('REALITY links without an SNI, with spiderX or with any Xray fingerprint ar
   for (const fp of ['qq', '360', 'randomizednoalpn', 'HelloChrome_131']) assert.equal(parseSubscription(`${base}&fp=${fp}#x`).profiles.length, 1, fp);
   assert.throws(() => parseSubscription(`${base}&fp=nonsense#x`), /fingerprint «nonsense» не поддерживается/);
 });
+
+test('a TUN config leaves leak filters to joxy-guard: Xray commits its own in one oversized WFP transaction', () => {
+  const [p] = parseSubscription('vless://1b4e28ba-2fa1-41d2-883f-0016d3cca427@192.0.2.20:443?type=xhttp&security=reality&sni=example.com&pbk=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG&sid=ab12#x').profiles;
+  const tun = (on) => buildConfig(p, { http: 1, socks: 2 }, '', { mode: 'tun', tunDnsProtection: on, tunIpv6: 'block', tunMtu: 1400 }).inbounds.find((i) => i.protocol === 'tun').settings;
+  for (const on of [true, false]) assert.equal('autoSystemWfpBlockLeak' in tun(on), false);
+});

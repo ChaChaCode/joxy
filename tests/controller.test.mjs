@@ -285,16 +285,50 @@ test('server addresses are resolved before arming and reused while the resolver 
   await controller.close();
 });
 
-test('a TUN leak-filter failure is reported as the VPN conflict it usually is, without trying every server', async () => {
-  const f = fixture({ elevated: true }); f.data.settings.mode = 'tun';
-  const wfp = 'Ошибка конфигурации Xray: app/proxyman/inbound: failed to start proxy > proxy/tun: unable to block udp/53 (remove autoSystemWfpBlockLeak to run without) > proxy/tun: FwpmTransactionCommit0 failed > The object is referenced by other objects so cannot be deleted.';
-  const factory = f.controller.engineFactory;
-  f.controller.engineFactory = () => { const e = factory(); e.start = async (p) => { f.calls.push(`start:${p.id}`); throw new Error(wfp); }; return e; };
+function leakGuardFixture(settings = {}, options = {}) {
+  const f = fixture({ elevated: true });
+  Object.assign(f.data.settings, { mode: 'tun', ...settings });
+  const g = new EventEmitter();
+  g.armed = false; g.configs = [];
+  g.arm = async (config) => { f.calls.push('leak-arm'); if (options.armFailure) throw new Error('Защита от утечек: install the filters: refused'); g.armed = true; g.configs.push(config); };
+  g.disarm = async () => { if (g.armed) f.calls.push('leak-disarm'); g.armed = false; };
+  f.controller.leakGuard = g; f.g = g;
+  return f;
+}
+test('the leak protection arms once the TUN is up, blocks DNS and untunnelled IPv6, and goes with the session', async () => {
+  const { controller, calls, g } = leakGuardFixture();
+  await controller.connect();
+  assert.deepEqual(calls.slice(0, 2), ['start:primary', 'leak-arm']);
+  assert.deepEqual(g.configs[0], { apps: [controller.binary], tun: 'JOXY', allowLan: false, leaksOnly: true, blockDns: true, blockIpv6: true });
+  await controller.disconnect();
+  assert.equal(g.armed, false);
+  const tunnelled = leakGuardFixture({ tunIpv6: 'tunnel', tunDnsProtection: false });
+  await tunnelled.controller.connect();
+  assert.deepEqual(tunnelled.calls, ['start:primary', 'probe', 'proxy-suspend'], 'Nothing to block: no guard');
+  const ipv6Only = leakGuardFixture({ tunDnsProtection: false });
+  await ipv6Only.controller.connect();
+  assert.equal(ipv6Only.g.configs[0].blockDns, false); assert.equal(ipv6Only.g.configs[0].blockIpv6, true);
+  await tunnelled.controller.close(); await ipv6Only.controller.close();
+});
+test('the kill switch replaces the leak protection, which comes back when the kill switch is turned off', async () => {
+  const f = leakGuardFixture({ killSwitch: true });
+  const ks = new EventEmitter(); ks.armed = false;
+  ks.arm = async () => { f.calls.push('ks-arm'); ks.armed = true; }; ks.disarm = async () => { if (ks.armed) f.calls.push('ks-disarm'); ks.armed = false; };
+  f.controller.killSwitch = ks;
+  await f.controller.connect();
+  assert.ok(!f.calls.includes('leak-arm'), 'The kill switch already blocks every leak');
+  await f.controller.updateSettings({ killSwitch: false });
+  assert.equal(ks.armed, false); assert.equal(f.g.armed, true);
+  await f.controller.close();
+});
+test('a leak protection that Windows refuses fails once, not per server, and says so', async () => {
+  const f = leakGuardFixture({}, { armFailure: true });
+  f.data.selectedId = 'auto';
+  await assert.rejects(f.controller.connect(), /Защита DNS не включилась: Windows не приняла правила фильтрации \(install the filters: refused\)/);
+  assert.equal(f.controller.connection.errorCode, 'wfp-blocked');
+  assert.equal(f.calls.filter((c) => c.startsWith('start:')).length, 1, 'One attempt: the failure is not the server');
   let reads = 0;
   f.controller.environmentReader = async () => ({ interface: 'Ethernet', interfaces: ['Ethernet'], elevated: true, tunActive: reads++ > 0, foreignTunnels: reads > 1 ? [{ name: 'throne-tun', routeCount: 44 }] : [] });
   await assert.rejects(f.controller.connect(), /TUN другого VPN \(throne-tun\)/);
   assert.equal(f.controller.connection.errorCode, 'vpn-conflict');
-  assert.equal(f.calls.filter((c) => c.startsWith('start:')).length, 1, 'One attempt: the failure is not the server');
-  f.controller.environmentReader = async () => ({ interface: 'Ethernet', interfaces: ['Ethernet'], elevated: true, tunActive: false });
-  await assert.rejects(f.controller.connect(), /защиту DNS.*«Защиту DNS»/);
 });

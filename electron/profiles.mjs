@@ -188,7 +188,8 @@ export function buildConfig(profile, ports, networkInterface = '', options = {})
       dns: ['172.31.255.2'],
       autoSystemRoutingTable: ['0.0.0.0/1', '128.0.0.0/1', ...(ipv6 ? ['::/1', '8000::/1'] : [])],
       autoOutboundsInterface: networkInterface || 'auto',
-      autoSystemWfpBlockLeak: [...(settings.tunDnsProtection ? ['dns'] : []), 'misconfigtun'],
+      // DNS protection is joxy-guard's, not Xray's autoSystemWfpBlockLeak: Xray commits its leak filters in a single
+      // WFP transaction, which some systems refuse once it holds more than five filters.
     }, sniffing: { enabled: true, destOverride: ['http', 'tls', 'quic'], routeOnly: true } });
     config.dns = { servers: [settings.dnsProvider === 'google' ? 'https://8.8.8.8/dns-query' : 'https://1.1.1.1/dns-query'], queryStrategy: ipv6 ? 'UseIP' : 'UseIPv4' };
     config.outbounds.push({ tag: 'dns-out', protocol: 'dns', settings: {} });
