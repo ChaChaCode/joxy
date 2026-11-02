@@ -35,20 +35,27 @@ for (const f of source.features) {
 }
 
 const cols = Math.round(360 / STEP), rows = Math.round((NORTH - SOUTH) / STEP);
-const dots = [];
-for (let row = 0; row < rows; row++) {
-  const lat = NORTH - (row + 0.5) * STEP;
-  for (let col = 0; col < cols; col++) {
-    const lon = -180 + (col + 0.5) * STEP;
-    const index = countries.findIndex((c) => lon >= c.bbox[0] && lon <= c.bbox[2] && lat >= c.bbox[1] && lat <= c.bbox[3] && c.polygons.some((rings) => inPolygon(lon, lat, rings)));
-    if (index >= 0) dots.push(col, row, index);
+// One grid per level of detail; level n has n times the dots per side, on the same origin.
+function grid(scale) {
+  const step = STEP / scale, out = [];
+  for (let row = 0; row < rows * scale; row++) {
+    const lat = NORTH - (row + 0.5) * step;
+    for (let col = 0; col < cols * scale; col++) {
+      const lon = -180 + (col + 0.5) * step;
+      const index = countries.findIndex((c) => lon >= c.bbox[0] && lon <= c.bbox[2] && lat >= c.bbox[1] && lat <= c.bbox[3] && c.polygons.some((rings) => inPolygon(lon, lat, rings)));
+      if (index >= 0) out.push(col, row, index);
+    }
   }
+  return out;
 }
+const dots = grid(1);
+// Finer levels as little-endian uint16 triplets (col, row, country) in base64: half the size of JSON numbers.
+const levels = [2, 4].map((scale) => ({ scale, data: Buffer.from(new Uint16Array(grid(scale)).buffer).toString('base64') }));
 const toGrid = ([lon, lat]) => [+((lon + 180) / STEP - 0.5).toFixed(2), +((NORTH - lat) / STEP - 0.5).toFixed(2)];
 const out = {
   source: 'Natural Earth 1:50m Admin 0 countries v5.1.2 (public domain)', step: STEP, cols, rows,
   countries: countries.map((c) => ({ iso: c.iso, center: toGrid(c.center), box: [...toGrid([c.bbox[0], c.bbox[3]]), ...toGrid([c.bbox[2], c.bbox[1]])] })),
-  dots,
+  dots, levels,
 };
 await writeFile(new URL('../src/assets/world-dots.json', import.meta.url), JSON.stringify(out));
-console.log(`${dots.length / 3} land dots, ${countries.length} countries, grid ${cols}x${rows}`);
+console.log(`${dots.length / 3} land dots, ${countries.length} countries, grid ${cols}x${rows}; levels ${levels.map((l) => `x${l.scale}: ${Buffer.from(l.data, 'base64').length / 6} dots`).join(', ')}`);

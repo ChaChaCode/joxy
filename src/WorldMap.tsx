@@ -3,13 +3,28 @@ import world from './assets/world-dots.json';
 
 type Tone = 'idle' | 'selected' | 'connected';
 type Camera = { x: number; y: number; z: number };
-const { cols, rows, dots, countries } = world as unknown as { cols: number; rows: number; dots: number[]; countries: { iso: string; center: [number, number] }[] };
+const { cols, rows, dots, countries, levels: finer } = world as unknown as { cols: number; rows: number; dots: number[]; countries: { iso: string; center: [number, number] }[]; levels: { scale: number; data: string }[] };
 
-const byCountry = new Map<string, [number, number][]>();
-for (let i = 0; i < dots.length; i += 3) {
-  const iso = countries[dots[i + 2]].iso, point: [number, number] = [dots[i] + 0.5, dots[i + 1] + 0.5];
-  const list = byCountry.get(iso);
-  if (list) list.push(point); else byCountry.set(iso, [point]);
+// Three levels of detail on one origin: 1x, 2x and 4x dots per side. Coordinates are in base-grid units throughout.
+type Level = { scale: number; byCountry: Map<string, [number, number][]> };
+function level(scale: number, triplets: ArrayLike<number>): Level {
+  const byCountry = new Map<string, [number, number][]>();
+  for (let i = 0; i < triplets.length; i += 3) {
+    const iso = countries[triplets[i + 2]].iso, point: [number, number] = [(triplets[i] + 0.5) / scale, (triplets[i + 1] + 0.5) / scale];
+    const list = byCountry.get(iso);
+    if (list) list.push(point); else byCountry.set(iso, [point]);
+  }
+  return { scale, byCountry };
+}
+const decode = (b64: string) => { const bin = atob(b64), bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return new Uint16Array(bytes.buffer); };
+const levels: Level[] = [level(1, dots), ...finer.map((l) => level(l.scale, decode(l.data)))];
+const byCountry = levels[0].byCountry;
+// How much of each level shows at a zoom: each step of detail takes over around a doubling of the zoom, with a short
+// cross-fade, so the dots on screen keep about the same spacing and the outlines sharpen instead of the dots swelling.
+const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+function weights(z: number) {
+  const f = Math.log2(z), up1 = smooth(0.85, 1.15, f), up2 = smooth(1.85, 2.15, f);
+  return [1 - up1, up1 - up2, up2];
 }
 
 const MIN_Z = 1, MAX_Z = 8, BLEED = 1.14; // at z = 1 the world is 14% wider than the view, so its edges leave the frame
@@ -54,22 +69,30 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const style = getComputedStyle(el), k = scale(w), c = cam.current;
-    const r = Math.min(Math.max(k * 0.29, 0.7), 7);
     const ax = w / 2, ay = h * ANCHOR_Y;
     const { iso: chosen, tone: t, servers: available } = props.current;
-    // Every frame is drawn at the real scale, so dots stay crisp while the camera moves.
-    const paint = (points: Iterable<[number, number]>, color: string) => {
-      ctx.fillStyle = color; ctx.beginPath();
-      for (const [x, y] of points) {
-        const sx = ax + (x - c.x) * k, sy = ay + (y - c.y) * k;
-        if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
-        ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2);
-      }
-      ctx.fill();
-    };
     const land = style.getPropertyValue('--dot'), server = style.getPropertyValue('--map-server');
-    for (const [code, points] of byCountry) if (code !== chosen) paint(points, available.has(code) ? server : land);
-    if (chosen) paint(byCountry.get(chosen) || [], t === 'connected' ? style.getPropertyValue('--green') : t === 'selected' ? style.getPropertyValue('--text') : available.has(chosen) ? server : land);
+    const highlight = t === 'connected' ? style.getPropertyValue('--green') : t === 'selected' ? style.getPropertyValue('--text') : '';
+    const share = weights(c.z);
+    levels.forEach(({ scale: s, byCountry: countriesAt }, i) => {
+      if (share[i] < 0.01) return;
+      // Dot size follows the spacing of its own level, so finer levels bring smaller, denser dots.
+      const r = Math.min(Math.max((k / s) * 0.29, 0.7), 7);
+      ctx.globalAlpha = share[i];
+      // Every frame is drawn at the real scale, so dots stay crisp while the camera moves; off-screen dots are skipped.
+      const paint = (points: [number, number][], color: string) => {
+        ctx.fillStyle = color; ctx.beginPath();
+        for (const [x, y] of points) {
+          const sx = ax + (x - c.x) * k, sy = ay + (y - c.y) * k;
+          if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
+          ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      };
+      for (const [code, points] of countriesAt) if (code !== chosen) paint(points, available.has(code) ? server : land);
+      if (chosen) paint(countriesAt.get(chosen) || [], highlight || (available.has(chosen) ? server : land));
+    });
+    ctx.globalAlpha = 1;
   }, []);
 
   // One loop drives springs and momentum; it stops itself when everything is at rest.
