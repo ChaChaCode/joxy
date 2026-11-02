@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ArrowDown, ArrowUp, Check, ChevronDown, CircleAlert, FileInput, LoaderCircle, Minus, Plus, Power, RefreshCw, ShieldCheck, X } from './icons';
 import type { Profile, State } from './types';
-import { CountryFlag, countryName } from './CountryFlag';
+import { AutoTile, CountryFlag, countryName } from './CountryFlag';
 import { maskAddresses } from './privacy';
 import { SettingsView } from './SettingsView';
 import { WorldMap } from './WorldMap';
@@ -115,22 +115,26 @@ export default function App() {
   };
   const choose = (id: string) => { setPickerOpen(false); run('select', () => bridge!.select(id)); };
   const title = !state.profiles.length ? 'Нет серверов' : connected ? 'Подключено' : connecting ? 'Подключение…' : failed ? 'Не удалось подключиться' : shown || state.selectedId === 'auto' ? 'Готово к подключению' : 'Не подключено';
-  const locationLabel = shown ? `${countryName(shown.countryCode) || 'Сервер'} · ${privateText(shown.name)}` : state.profiles.length ? 'Автовыбор' : 'Выберите локацию';
+  const place = (p: Profile) => countryName(p.countryCode) ? `${countryName(p.countryCode)} · ${privateText(p.name)}` : privateText(p.name);
+  const locationLabel = shown ? place(shown) : state.profiles.length ? 'Автовыбор' : 'Выберите локацию';
   const latency = (p: Profile) => p.lastTest?.status === 'ok' ? `${p.lastTest.latency} мс` : p.lastTest?.status === 'checking' ? 'проверка…' : p.lastTest?.status === 'error' ? 'недоступен' : '';
 
   return <div className="app">
     <header className="topbar">
       {view === 'home' ? <div className="picker" ref={pickerRef}>
         <button className="picker-button" aria-haspopup="listbox" aria-expanded={pickerOpen} onClick={() => state.profiles.length ? setPickerOpen(!pickerOpen) : openImport()}>
-          {shown && <CountryFlag code={shown.countryCode} />}<span>{locationLabel}</span><ChevronDown size={14} className={pickerOpen ? 'flipped' : ''} />
+          {shown ? <CountryFlag code={shown.countryCode} /> : state.profiles.length > 0 && <AutoTile />}<span>{locationLabel}</span><ChevronDown size={14} className={pickerOpen ? 'flipped' : ''} />
         </button>
-        {pickerOpen && <div className="picker-menu" role="listbox" aria-label="Локация">
-          <button role="option" aria-selected={state.selectedId === 'auto'} className="picker-option" onClick={() => choose('auto')}><span className="picker-auto">A</span><span className="picker-text"><strong>Автовыбор</strong><small>Лучший доступный сервер</small></span>{state.selectedId === 'auto' && <Check size={15} />}</button>
+        {pickerOpen && <div className="picker-menu">
+          {/* The list scrolls; the actions stay pinned to the bottom of the menu however many servers there are. */}
+          <div className="picker-list" role="listbox" aria-label="Локация">
+          <button role="option" aria-selected={state.selectedId === 'auto'} className="picker-option" onClick={() => choose('auto')}><AutoTile /><span className="picker-text"><strong>Автовыбор</strong><small>Лучший доступный сервер</small></span>{state.selectedId === 'auto' && <Check size={15} />}</button>
           {state.profiles.map((p) => <button key={p.id} role="option" aria-selected={state.selectedId === p.id} aria-label={`Выбрать ${privateText(p.name)}`} className="picker-option" onClick={() => choose(p.id)}>
             <CountryFlag code={p.countryCode} />
-            <span className="picker-text"><strong>{countryName(p.countryCode) || 'Сервер'} · {privateText(p.name)}</strong><small>VLESS · {security(p)} · {transport(p)}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span>
+            <span className="picker-text"><strong>{place(p)}</strong><small>VLESS · {security(p)} · {transport(p)}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span>
             <span className={`picker-latency ${p.lastTest?.status || ''}`}>{latency(p)}</span>{state.selectedId === p.id && <Check size={15} />}
           </button>)}
+          </div>
           <div className="picker-actions">
             <button className="button text" disabled={state.checking || !!busy} onClick={() => run('test', () => bridge!.test())}>{state.checking ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}{state.checking ? 'Проверяем…' : 'Проверить задержку'}</button>
             <button className="button text" onClick={openImport}><Plus size={14} />Добавить подписку</button>

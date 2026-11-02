@@ -41,7 +41,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .picker-button svg.flipped { transform: rotate(180deg); }
 .picker-button svg { transition: transform var(--spring-fast) var(--spring); }
 .picker-menu {
-  position: absolute; top: calc(100% + 4px); left: -10px; z-index: 30; width: 400px; max-height: 420px; overflow: auto; padding: 6px;
+  position: absolute; top: calc(100% + 4px); left: -10px; z-index: 30; width: 400px; max-height: min(460px, calc(100vh - 80px)); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-pop);
   transform-origin: 30px 0; animation: grow var(--spring-fast) var(--spring) both;
 }
@@ -49,14 +49,20 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .picker-option { width: 100%; display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 9px; background: transparent; text-align: left; }
 .picker-option:hover, .picker-option:focus-visible { background: var(--surface-hover); }
 .picker-option .country-flag { width: 24px; height: 17px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px var(--line); flex-shrink: 0; }
-.picker-auto { width: 24px; height: 17px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 10px; font-weight: 600; background: var(--surface-hover); color: var(--secondary); box-shadow: 0 0 0 1px var(--line); flex-shrink: 0; }
 .picker-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .picker-text strong { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-text small { font-size: 11px; color: var(--secondary); margin-top: 1px; }
 .picker-latency { font-family: var(--font-mono); font-size: 11px; color: var(--secondary); white-space: nowrap; }
 .picker-latency.ok { color: var(--green); }
 .picker-latency.error { color: var(--danger); }
-.picker-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; padding: 6px 4px 2px; border-top: 1px solid var(--line); }
+.picker-list { flex: 1; min-height: 0; overflow: auto; padding: 6px; }
+.picker-actions { flex-shrink: 0; display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--line); background: var(--surface); }
+/* Tiles take the flag's place and size; the context rules for .country-flag set their dimensions. */
+.tile { display: inline-flex; flex-shrink: 0; overflow: hidden; border-radius: 3px; box-shadow: 0 0 0 1px var(--line); }
+.tile svg { width: 100%; height: 100%; display: block; }
+.tile-auto svg { fill: currentColor; }
+.tile-auto { background: var(--ink); color: var(--on-ink); }
+.tile-globe { background: var(--surface-hover); color: var(--secondary); }
 
 /* Notices are quiet cards in the bottom-right corner; they never push the layout around. */
 .notices { position: fixed; right: 18px; bottom: 62px; z-index: 9; width: 330px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
