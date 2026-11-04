@@ -1,0 +1,30 @@
+# Builds the iOS probe as an unsigned .ipa for sideloading. The binaries carry their entitlements ad-hoc signed, so
+# the sideloading tool knows to ask for the Network Extension capability.
+name: iOS probe
+on:
+  push:
+    branches: [ios-probe]
+    paths: ['ios/probe/**', '.github/workflows/ios-probe.yml']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - name: Build
+        working-directory: ios/probe
+        run: |
+          set -euo pipefail
+          xcodegen generate
+          xcodebuild -project JoxyProbe.xcodeproj -scheme JoxyProbe -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -n 60
+          app=build/Build/Products/Release-iphoneos/JoxyProbe.app
+          codesign -f -s - --entitlements Tunnel.entitlements "$app/PlugIns/Tunnel.appex"
+          codesign -f -s - --entitlements Tunnel.entitlements "$app"
+          codesign -d --entitlements - "$app/PlugIns/Tunnel.appex"
+          mkdir Payload && cp -R "$app" Payload/ && zip -qry JoxyProbe.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JoxyProbe-ipa
+          path: ios/probe/JoxyProbe.ipa
