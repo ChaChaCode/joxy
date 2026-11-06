@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('joxy', Object.freeze({
   checkUpdate: () => invoke('update-check'),
   installUpdate: () => invoke('update-install'),
   minimize: () => invoke('minimize'),
+  showMain: () => invoke('show-main'),
+  hideTray: () => invoke('tray-hide'),
+  quit: () => invoke('quit'),
   close: () => invoke('close'),
   onState: (callback) => {
     const listener = (_event, value) => callback(value);

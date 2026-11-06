@@ -17,7 +17,7 @@ export interface State {
   version: string; profiles: Profile[];
   sources: Source[];
   selectedId: string; settings: Settings; checking: boolean;
-  connection: { phase: 'idle' | 'connecting' | 'connected' | 'error'; profileId: string | null; since: string | null; exitIP: string | null; latency: number | null; systemProxy: boolean; mode?: Settings['mode']; error?: string; errorCode?: 'vpn-conflict' | 'wfp-blocked'; ports?: { http: number; socks: number } };
+  connection: { phase: 'idle' | 'connecting' | 'connected' | 'error'; profileId: string | null; since: string | null; exitIP: string | null; exitCountry?: string | null; latency: number | null; systemProxy: boolean; mode?: Settings['mode']; error?: string; errorCode?: 'vpn-conflict' | 'wfp-blocked'; ports?: { http: number; socks: number } };
   update?: { status: 'idle' | 'checking' | 'available' | 'latest' | 'downloading' | 'ready' | 'error'; version: string | null; progress: number; error: string | null; checkedAt: string | null } | null;
   stats: { down: number; up: number; downRate: number; upRate: number; history: { down: number; up: number }[] };
   logs: { id: string; time: string; level: 'info' | 'warning' | 'error'; message: string }[];
@@ -34,7 +34,7 @@ export interface Bridge {
   connect(): Promise<void>; disconnect(): Promise<void>; test(id?: string): Promise<void>; testProfile(id: string): Promise<void>;
   settings(patch: Partial<Settings>): Promise<void>; environment(): Promise<State['environment']>;
   elevate(patch: Partial<Settings>, options?: { connect?: boolean }): Promise<void>;
-  exportDiagnostics(): Promise<boolean>; checkUpdate(): Promise<State['update']>; installUpdate(): Promise<void>; minimize(): Promise<void>; close(): Promise<void>;
+  exportDiagnostics(): Promise<boolean>; showMain(): Promise<void>; hideTray(): Promise<void>; quit(): Promise<void>; checkUpdate(): Promise<State['update']>; installUpdate(): Promise<void>; minimize(): Promise<void>; close(): Promise<void>;
   onState(callback: (state: State) => void): () => void;
 }
 declare global { interface Window { joxy?: Bridge } }

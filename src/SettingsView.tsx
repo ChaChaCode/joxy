@@ -1,18 +1,17 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
-import { Activity, ArrowDown, Check, CircleAlert, CircleCheck, Clock3, Download, Eye, Globe2, LoaderCircle, Network, Plus, RefreshCw, Servers, Settings2 } from './icons';
+import { Activity, ArrowDown, CellSignal, Check, CircleAlert, CircleCheck, Clock3, Download, Eye, Globe2, LoaderCircle, Network, Plus, RefreshCw, Servers, Settings2 } from './icons';
 import type { Bridge, Settings, State } from './types';
 import { Select } from './Select';
-import { ServerGroup } from './ServerGroup';
-import { CountryFlag } from './CountryFlag';
-import { countProfiles, transport } from './format';
+import { ServerCard, ServerGroup } from './ServerGroup';
+import { countProfiles } from './format';
 
 type Section = 'general' | 'connection' | 'routing' | 'privacy' | 'subscriptions' | 'diagnostics';
 const sections: { id: Section; label: string; icon: typeof Settings2 }[] = [
   { id: 'general', label: 'Основные', icon: Settings2 },
-  { id: 'connection', label: 'Подключение', icon: Network },
-  { id: 'routing', label: 'Маршрутизация', icon: Globe2 },
-  { id: 'privacy', label: 'Приватность', icon: Eye },
   { id: 'subscriptions', label: 'Серверы', icon: Servers },
+  { id: 'routing', label: 'Маршрутизация', icon: Globe2 },
+  { id: 'connection', label: 'Подключение', icon: Network },
+  { id: 'privacy', label: 'Приватность', icon: Eye },
   { id: 'diagnostics', label: 'Диагностика', icon: Activity },
 ];
 
@@ -93,18 +92,34 @@ export function SettingsView({ state, bridge, busy, run, back, privateText, addr
         {section === 'privacy' && <>
           <Row title="Показывать адреса" description="IP-адреса и домены серверов скрыты всегда. Показ действует 30 секунд и выключается при смене экрана."><Toggle label="Показывать адреса" value={addressesVisible} change={setAddressesVisible} /></Row>
           <Row title="Хранение профилей" description="Подписки и ключи зашифрованы Windows DPAPI и доступны только вашей учётной записи."><span className="row-value"><CircleCheck size={16} />Зашифровано</span></Row>
-          <Row title="Внешние сервисы" description="JOXY не обращается к GeoIP и аналитике. Страна сервера берётся из подписки."><span className="row-value"><CircleCheck size={16} />Не используются</span></Row>
+          <Row title="Внешние сервисы" description="JOXY не обращается к GeoIP и аналитике. Страна сервера берётся из подписки или по IP выхода из встроенной базы IP Geolocation by DB-IP (CC BY 4.0) прямо на компьютере, а место на карте — из часового пояса Windows."><span className="row-value"><CircleCheck size={16} />Не используются</span></Row>
           <Row title="Отчёт для поддержки" description="Без адресов, ключей и названий серверов."><button className="button secondary" disabled={!!busy} onClick={() => run('export', () => bridge!.exportDiagnostics(), 'Отчёт сохранён')}><Download size={15} />Сохранить</button></Row>
         </>}
 
         {section === 'subscriptions' && <>
-          <div className="section-actions"><span>{countProfiles(state.profiles.length)}</span><button className="button text" disabled={state.checking || !state.profiles.length || !!busy} onClick={() => run('test', () => bridge!.test())}>{state.checking ? <LoaderCircle size={14} className="spin" /> : <Activity size={14} />}Проверить все</button><button className="button text" disabled={!!busy || !state.sources.some((x) => x.remote)} onClick={() => run('refresh', () => bridge!.refresh(), 'Подписки обновлены')}><RefreshCw size={14} className={busy === 'refresh' ? 'spin' : ''} />Обновить</button><button className="button primary" onClick={openImport}><Plus size={15} />Добавить</button></div>
-          <div className="subscription-groups">{state.sources.map((source) => {
-            const profiles = state.profiles.filter((p) => p.sourceId === source.id);
-            return <ServerGroup key={source.id} source={{ ...source, label: privateText(source.label), announcement: privateText(source.announcement) }} count={profiles.length} current={state.connection.phase === 'connected' && profiles.some((p) => p.id === state.connection.profileId)} now={now} busy={!!busy} checking={state.checking} refresh={() => run('refresh', () => bridge!.refresh(source.id), 'Подписка обновлена')} test={() => run('test', () => bridge!.test(source.id))} open={(kind) => run('provider', () => bridge!.openProvider(source.id, kind))} onMenu={(e) => serverMenu(e, source.id, 'source')}>
-              {profiles.map((p) => <div className="sub-server" key={p.id} onContextMenu={(e) => serverMenu(e, p.id)}><CountryFlag code={p.countryCode} /><span><strong>{privateText(p.name)}</strong><small>VLESS · {transport(p)} · {p.security.toUpperCase()}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span><em className={p.lastTest?.status || ''}>{p.lastTest?.status === 'ok' ? `${p.lastTest.latency} мс` : p.lastTest?.status === 'error' ? 'Недоступен' : p.lastTest?.status === 'checking' ? 'Проверка…' : 'Не проверен'}</em></div>)}
-            </ServerGroup>;
-          })}</div>
+          {/* Servers added by hand stand as cards of their own; a subscription's servers sit inside its card. */}
+          <div className="servers-head">
+            <div><h2>Серверы</h2><p>{countProfiles(state.profiles.length)}: добавленные вручную и из подписок</p></div>
+            <div className="servers-actions">
+              <button className="button secondary" disabled={state.checking || !state.profiles.length || !!busy} onClick={() => run('test', () => bridge!.test())}>{state.checking ? <LoaderCircle size={15} className="spin" /> : <CellSignal size={15} />}Проверить задержку</button>
+              <button className="button secondary" disabled={!!busy || !state.sources.some((x) => x.remote)} onClick={() => run('refresh', () => bridge!.refresh(), 'Подписки обновлены')}><RefreshCw size={15} className={busy === 'refresh' ? 'spin' : ''} />Обновить подписки</button>
+              <button className="button primary" onClick={openImport}><Plus size={15} />Добавить</button>
+            </div>
+          </div>
+          {(() => {
+            const active = (id: string) => state.connection.phase === 'connected' && state.connection.profileId === id;
+            const card = (p: typeof state.profiles[number]) => <ServerCard key={p.id} profile={p} active={active(p.id)} name={privateText(p.name)} addressesVisible={addressesVisible} onMenu={(e) => serverMenu(e, p.id)} />;
+            const local = state.sources.filter((s) => !s.remote).flatMap((s) => state.profiles.filter((p) => p.sourceId === s.id));
+            return <div className="subscription-groups">
+              {local.length > 0 && <div className="server-list standalone">{local.map(card)}</div>}
+              {state.sources.filter((s) => s.remote).map((source) => {
+                const profiles = state.profiles.filter((p) => p.sourceId === source.id);
+                return <ServerGroup key={source.id} source={{ ...source, label: privateText(source.label), announcement: privateText(source.announcement) }} count={profiles.length} current={profiles.some((p) => active(p.id))} now={now} busy={!!busy} checking={state.checking} refresh={() => run('refresh', () => bridge!.refresh(source.id), 'Подписка обновлена')} test={() => run('test', () => bridge!.test(source.id))} open={(kind) => run('provider', () => bridge!.openProvider(source.id, kind))} onMenu={(e) => serverMenu(e, source.id, 'source')}>
+                  {profiles.map(card)}
+                </ServerGroup>;
+              })}
+            </div>;
+          })()}
           {!state.profiles.length && <p className="hint">Серверов пока нет.</p>}
         </>}
 

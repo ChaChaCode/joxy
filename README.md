@@ -71,11 +71,12 @@ npm run pack         # собирает интерфейс, помощник kil
 - `src/` — интерфейс на React: карта (`WorldMap.tsx`), главный экран (`App.tsx`), настройки (`SettingsView.tsx`).
 - `guard/` — `joxy-guard`, помощник kill switch на Go (Windows Filtering Platform, динамическая сессия).
 - `resources/` — скрипты Windows для прокси и восстановления TUN; сюда же `fetch:core` кладёт Xray и Wintun.
-- `scripts/build-world-dots.mjs` — сборка точечной карты из данных Natural Earth.
+- `scripts/build-world-dots.mjs` — сборка точечной карты в проекции Equal Earth из данных Natural Earth и координат часовых поясов IANA.
+- `scripts/build-ip-country.mjs` — сборка встроенной базы «IP → страна» из DB-IP IP to Country Lite.
 - `docs/` — заметки по архитектуре и скриншоты; `CHANGELOG.md` — история версий; `DESIGN.md` — принципы оформления.
 
 ## Лицензия
 
-JOXY распространяется по лицензии [MIT](LICENSE). Сторонние компоненты — Xray-core (MPL-2.0), Wintun, Electron, React, шрифты Golos Text и Geist Mono (OFL), иконки Phosphor и флаги flag-icons (MIT), данные Natural Earth (общественное достояние) — используются по своим лицензиям, см. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+JOXY распространяется по лицензии [MIT](LICENSE). Сторонние компоненты — Xray-core (MPL-2.0), Wintun, Electron, React, шрифт Inter (OFL), иконки Phosphor и флаги flag-icons (MIT), данные Natural Earth и базы часовых поясов IANA (общественное достояние), IP Geolocation by [DB-IP](https://db-ip.com) (CC BY 4.0) — используются по своим лицензиям, см. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 JOXY — независимый проект. Он не содержит кода Throne или nekoray и не связан с XTLS.

@@ -19,7 +19,7 @@ export function redact(text) {
 }
 
 export class Controller extends EventEmitter {
-  constructor({ store, binaryDir, runtimeDir, proxy, tunGuard = null, killSwitch = null, leakGuard = null, updater = null, engineFactory, environmentReader, subscriptionFetcher = fetchSubscription, hostResolver = (host) => lookup(host, { family: 4 }).then((r) => r.address), version = appVersion }) {
+  constructor({ store, binaryDir, runtimeDir, proxy, tunGuard = null, killSwitch = null, leakGuard = null, updater = null, ipCountry = null, engineFactory, environmentReader, subscriptionFetcher = fetchSubscription, hostResolver = (host) => lookup(host, { family: 4 }).then((r) => r.address), version = appVersion }) {
     super(); this.store = store; this.binaryDir = binaryDir; this.binary = path.join(binaryDir, 'xray.exe'); this.runtimeDir = runtimeDir; this.proxy = proxy;
     this.connection = { phase: 'idle', profileId: null, since: null, exitIP: null, latency: null, systemProxy: false };
     this.stats = { down: 0, up: 0, downRate: 0, upRate: 0, history: [] };
@@ -33,6 +33,7 @@ export class Controller extends EventEmitter {
     // outside the TUN. The kill switch already blocks all of that, so only one of them runs at a time.
     this.leakGuard = leakGuard;
     this.updater = updater; updater?.on('change', () => this.publish());
+    this.ipCountry = ipCountry;
     leakGuard?.on('failed', (e) => this.log('error', e.message));
     leakGuard?.on('warning', (message) => this.log('warning', `Защита от утечек: ${message}`));
     this.engineFactory = engineFactory || (() => new XrayEngine(this.binary, this.runtimeDir, this.tunGuard));
@@ -325,11 +326,14 @@ export class Controller extends EventEmitter {
           const latency = await engine.probe(d.settings.timeout);
           p.lastTest = { status: 'ok', latency, checkedAt: new Date().toISOString() };
           const exitIP = await engine.exitIP().catch(() => null);
+          // Where traffic actually leaves, from the bundled table: a server with no country of its own, such as a relay
+          // that picks the exit itself, still shows on the map.
+          const exitCountry = exitIP ? await this.ipCountry?.lookup(exitIP).catch(() => null) ?? null : null;
           if (this.closed) throw new Error('Приложение закрывается.');
           if (mode === 'system') await this.proxy.enable(engine.ports.http, engine.child.pid);
           if (mode === 'tun') await this.proxy.suspend(engine.child.pid);
           if (this.closed) throw new Error('Приложение закрывается.');
-          this.connection = { phase: 'connected', profileId: p.id, since: new Date().toISOString(), exitIP, latency, mode, systemProxy: mode === 'system', ports: engine.ports, interface: this.env.interface || '' };
+          this.connection = { phase: 'connected', profileId: p.id, since: new Date().toISOString(), exitIP, exitCountry, latency, mode, systemProxy: mode === 'system', ports: engine.ports, interface: this.env.interface || '' };
           this.stats = { down: 0, up: 0, downRate: 0, upRate: 0, history: [] }; this.lastSample = null; this.healthFails = 0; this.pendingRecovery = null;
           engine.once('crash', () => this.handleCrash());
           await this.store.save(); this.log('info', `Подключено: ${p.name}. ${mode === 'tun' ? 'TUN: системные маршруты и DNS включены.' : mode === 'system' ? 'Системный прокси Windows включён.' : 'Локальный HTTP/SOCKS-прокси запущен.'}`);

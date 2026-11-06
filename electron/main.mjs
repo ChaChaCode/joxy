@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeImage, Tray, Menu, safeStorage, nativeTheme, shell, powerMonitor, clipboard } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, Tray, safeStorage, nativeTheme, shell, powerMonitor, clipboard, screen } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
@@ -11,6 +11,7 @@ import { settingsPatch, normalizeSettings } from './settings.mjs';
 import { elevate, isElevated, waitForPreviousProcess } from './elevation.mjs';
 import { KillSwitch } from './killswitch.mjs';
 import { Updater } from './updates.mjs';
+import { IpCountry } from './geoip.mjs';
 import { spawn } from 'node:child_process';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -26,7 +27,7 @@ const dataDir = process.env.JOXY_TEST_DATA || process.env.JOMO_TEST_DATA || proc
 app.setPath('userData', dataDir);
 app.setName('JOXY');
 app.setAppUserModelId('app.joxy.desktop');
-let window, tray, controller, updater, quitting = false, cleanupStarted = false;
+let window, tray, trayWindow, trayHiddenAt = 0, controller, updater, quitting = false, cleanupStarted = false;
 const resources = app.isPackaged ? process.resourcesPath : path.join(root, 'resources');
 
 await waitForPreviousProcess();
@@ -55,7 +56,7 @@ async function start() {
     try { await elevate(app, false); quitting = true; app.quit(); return; }
     catch { store.data.settings.elevateOnStart = false; await store.save(); }
   }
-  controller = new Controller({ store, binaryDir: path.join(resources, 'xray'), runtimeDir: path.join(dataDir, 'runtime'), proxy: new SystemProxy(path.join(resources, 'windows-proxy.ps1'), dataDir), tunGuard: new TunGuard(path.join(resources, 'windows-tun.ps1'), dataDir), killSwitch: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe')), leakGuard: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe'), undefined, 'Защита от утечек'), updater: updater = new Updater({ version: app.getVersion() }), version: app.getVersion() });
+  controller = new Controller({ store, binaryDir: path.join(resources, 'xray'), runtimeDir: path.join(dataDir, 'runtime'), proxy: new SystemProxy(path.join(resources, 'windows-proxy.ps1'), dataDir), tunGuard: new TunGuard(path.join(resources, 'windows-tun.ps1'), dataDir), killSwitch: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe')), leakGuard: new KillSwitch(path.join(resources, 'guard', 'joxy-guard.exe'), undefined, 'Защита от утечек'), updater: updater = new Updater({ version: app.getVersion() }), ipCountry: new IpCountry(path.join(resources, 'geo', 'ip-country.bin')), version: app.getVersion() });
   await controller.initialize();
   if (tun && controller.env.elevated && store.data.settings.elevateOnStart === false) { store.data.settings.elevateOnStart = true; await store.save(); }
   const bootstrapIndex = process.argv.indexOf('--bootstrap');
@@ -97,21 +98,21 @@ async function start() {
   await window.loadFile(path.join(root, 'dist', 'index.html'));
   const trayImage = nativeImage.createFromPath(path.join(resources, 'window-icon.png')).resize({ width: 20, height: 20, quality: 'best' });
   tray = new Tray(trayImage);
-  tray.on('click', () => { window.show(); window.focus(); });
-  tray.on('double-click', () => { window.show(); window.focus(); });
+  trayWindow = await createTrayWindow();
+  // A left click opens the app; the right click opens the mini panel above the icon (a second one closes it), which
+  // takes the place of a context menu and has the way out of the app as well.
+  tray.on('click', () => { trayWindow.hide(); window.show(); window.focus(); });
+  tray.on('right-click', () => toggleTrayPanel());
   const updateTray = () => {
     const connected = controller.connection.phase === 'connected';
     tray.setToolTip(`JOXY · ${connected ? 'Подключено' : 'Отключено'}`);
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Открыть JOXY', click: () => { window.show(); window.focus(); } },
-      { label: connected ? 'Отключиться' : 'Подключиться', enabled: !controller.busy, click: () => (connected ? controller.disconnect() : controller.connect()).catch((e) => controller.log('error', e.message)) },
-      { type: 'separator' }, { label: 'Выход', click: () => { quitting = true; app.quit(); } },
-    ]));
   };
   updateTray();
   controller.on('state', (state) => {
     if (nativeTheme.themeSource !== (state.settings.theme || 'system')) nativeTheme.themeSource = state.settings.theme || 'system';
-    if (!window.isDestroyed()) window.webContents.send('joxy:state', state); updateTray();
+    if (!window.isDestroyed()) window.webContents.send('joxy:state', state);
+    if (trayWindow && !trayWindow.isDestroyed()) trayWindow.webContents.send('joxy:state', state);
+    updateTray();
   });
   // Give Wi-Fi a few seconds to come back before probing the tunnel.
   powerMonitor.on('resume', () => setTimeout(() => controller.afterResume(), 4000));
@@ -120,6 +121,35 @@ async function start() {
   // A quiet check soon after start and then every six hours; a failure waits for the next one.
   setTimeout(() => updater.check(), 8000);
   setInterval(() => updater.check(), 6 * 3600_000);
+}
+
+// The tray panel: a small frameless window with the connection at a glance, shown above the tray icon. It loads the
+// same page as the main window, which renders the panel for #tray, and may only ask for what the panel needs.
+const TRAY_SIZE = { width: 320, height: 392 };
+async function createTrayWindow() {
+  const panel = new BrowserWindow({
+    ...TRAY_SIZE, show: false, frame: false, resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false,
+    skipTaskbar: true, alwaysOnTop: true, transparent: true, backgroundColor: '#00000000', title: 'JOXY',
+    webPreferences: { preload: path.join(directory, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, spellcheck: false },
+  });
+  panel.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  panel.webContents.on('will-navigate', (event, url) => { if (url !== panel.webContents.getURL()) event.preventDefault(); });
+  panel.on('blur', () => { if (panel.isVisible()) { panel.hide(); trayHiddenAt = Date.now(); } });
+  await panel.loadFile(path.join(root, 'dist', 'index.html'), { hash: 'tray' });
+  return panel;
+}
+function toggleTrayPanel() {
+  if (trayWindow.isVisible()) { trayWindow.hide(); return; }
+  // Clicking the icon while the panel is open first blurs it (which hides it), then clicks: that click only closes.
+  if (Date.now() - trayHiddenAt < 250) return;
+  const icon = tray.getBounds(), area = screen.getDisplayMatching(icon).workArea, { width, height } = TRAY_SIZE;
+  const x = Math.round(Math.min(Math.max(icon.x + icon.width / 2 - width / 2, area.x + 8), area.x + area.width - width - 8));
+  // The taskbar may sit at any edge: the panel opens on the work area's side nearest to the icon.
+  const below = icon.y < area.y + area.height / 2;
+  const y = Math.round(below ? area.y + 8 : area.y + area.height - height - 8);
+  trayWindow.setBounds({ x, y, width, height });
+  trayWindow.webContents.send('joxy:state', controller.snapshot());
+  trayWindow.show(); trayWindow.focus();
 }
 
 // The update replaces this portable file's folder copy, or lands in Downloads when JOXY runs unpacked. The new build
@@ -186,8 +216,15 @@ function registerIPC() {
       await writeFile(result.filePath, JSON.stringify(report, null, 2), { mode: 0o600 }); return true;
     },
   };
+  // The tray panel gets these only: it shows the state and connects, nothing that changes settings or reveals secrets.
+  const trayActions = new Set(['state', 'connect', 'disconnect', 'show-main', 'tray-hide', 'quit']);
+  actions['show-main'] = () => { trayWindow?.hide(); window.show(); window.focus(); };
+  actions['tray-hide'] = () => { trayWindow?.hide(); };
+  actions.quit = () => { setImmediate(() => { quitting = true; app.quit(); }); };
   for (const [name, action] of Object.entries(actions)) ipcMain.handle(`joxy:${name}`, async (event, ...args) => {
-    if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) return { ok: false, error: 'Недопустимый источник запроса.' };
+    const fromMain = window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame;
+    const fromTray = trayWindow && event.sender === trayWindow.webContents && event.senderFrame === trayWindow.webContents.mainFrame && trayActions.has(name);
+    if (!fromMain && !fromTray) return { ok: false, error: 'Недопустимый источник запроса.' };
     try { return { ok: true, value: await action(...args) }; } catch (e) { return { ok: false, error: redact(e.message) }; }
   });
 }

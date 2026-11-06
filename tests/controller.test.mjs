@@ -423,3 +423,15 @@ test('servers pasted by hand gather in one list, and lists left empty go away', 
   assert.equal(data.sources.length, 1);
   assert.ok(data.profiles.every((p) => p.sourceId === data.sources[0].id));
 });
+
+test('the exit country comes from the bundled table, for servers with no country of their own', async () => {
+  const { controller } = fixture();
+  controller.ipCountry = { lookup: async (ip) => (ip === '192.0.2.10' ? 'NL' : null) };
+  await controller.connect();
+  assert.equal(controller.connection.exitIP, '192.0.2.10'); assert.equal(controller.connection.exitCountry, 'NL');
+  await controller.disconnect();
+  controller.ipCountry = { lookup: async () => { throw new Error('broken table'); } };
+  await controller.connect();
+  assert.equal(controller.connection.exitCountry, null, 'A broken table does not break connecting');
+  await controller.close();
+});

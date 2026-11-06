@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { ContextMenu } from './ContextMenu';
-import { ArrowDown, ArrowUp, Check, ChevronDown, CircleAlert, FileInput, LoaderCircle, Plus, Power, RefreshCw, Share, ShieldCheck, Trash, X } from './icons';
+import { ArrowDown, ArrowUp, CellSignal, Check, ChevronDown, CircleAlert, FileInput, LoaderCircle, Plus, Power, RefreshCw, Share, ShieldCheck, Trash, X } from './icons';
 import type { Profile, State } from './types';
 import { AutoTile, CountryFlag, countryName } from './CountryFlag';
 import { maskAddresses } from './privacy';
@@ -95,7 +95,9 @@ export default function App() {
   const shown = (connected || connecting) && active ? active : selected;
   // Auto mode still has a destination worth naming in the footer: the profile it tries first.
   const destination = shown || [...state.profiles].sort((a, b) => (a.transport === 'xhttp' ? 0 : 1) - (b.transport === 'xhttp' ? 0 : 1))[0];
-  const iso = shown?.countryCode && /^[A-Z]{2}$/.test(shown.countryCode) ? shown.countryCode : null;
+  // A server without a country of its own shows where its traffic leaves, once connected.
+  const exitCountry = connected && shown?.id === state.connection.profileId ? state.connection.exitCountry : null;
+  const iso = [shown?.countryCode, exitCountry].find((c) => c && /^[A-Z]{2}$/.test(c)) || null;
   const mode = state.connection.mode || state.settings.mode;
   // A dismissed conflict card stays hidden for that VPN until it goes away; if it comes back, so does the card.
   const foreignNames = state.environment.foreignTunnels?.map((t) => t.name) || [];
@@ -129,6 +131,13 @@ export default function App() {
   const serverMenu = (e: MouseEvent, id: string, kind: 'profile' | 'source' = 'profile') => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id, kind }); };
   const menuServer = menu?.kind === 'profile' ? state.profiles.find((p) => p.id === menu.id) : undefined;
   const menuSource = menu?.kind === 'source' ? state.sources.find((s) => s.id === menu.id) : undefined;
+  // Connect to one server from its menu, leaving the current one first; the server in use is disconnected instead.
+  const connectTo = async (id: string) => {
+    if (!bridge) return;
+    if (connected && state.connection.profileId === id) { run('connection', () => bridge.disconnect()); return; }
+    if (mode === 'tun' && !state.environment.elevated) { await bridge.select(id); elevateAndConnect(); return; }
+    run('connection', async () => { if (connected) await bridge.disconnect(); await bridge.select(id); await bridge.connect(); });
+  };
   const inUse = (ids: string[]) => (connected || connecting) && ids.includes(state.connection.profileId || '');
   const title = !state.profiles.length ? 'Нет серверов' : connected ? 'Подключено' : connecting ? 'Подключение…' : failed ? 'Не удалось подключиться' : shown || state.selectedId === 'auto' ? 'Готово к подключению' : 'Не подключено';
   const place = (p: Profile) => countryName(p.countryCode) ? `${countryName(p.countryCode)} · ${privateText(p.name)}` : privateText(p.name);
@@ -137,7 +146,8 @@ export default function App() {
 
   return <div className="app">
     {menuServer && <ContextMenu at={menu!} title={privateText(menuServer.name)} close={closeMenu} items={[
-      { label: 'Проверить задержку', icon: <RefreshCw size={15} />, disabled: !bridge || state.checking || !!busy, action: () => run('test', () => bridge!.testProfile(menuServer.id)) },
+      { label: connected && state.connection.profileId === menuServer.id ? 'Отключиться' : 'Подключиться', icon: <Power size={15} />, disabled: !bridge || connecting || !!busy || !state.core.ready, action: () => connectTo(menuServer.id) },
+      { label: 'Проверить задержку', icon: <CellSignal size={15} />, disabled: !bridge || state.checking || !!busy, action: () => run('test', () => bridge!.testProfile(menuServer.id)) },
       { label: 'Поделиться', icon: <Share size={15} />, disabled: !bridge, action: () => run('share', () => bridge!.share(menuServer.id), 'Ссылка на сервер скопирована') },
       { label: inUse([menuServer.id]) ? 'Удалить (сначала отключитесь)' : 'Удалить сервер', icon: <Trash size={15} />, disabled: !bridge || !!busy || inUse([menuServer.id]), confirm: 'Нажмите ещё раз, чтобы удалить', action: () => run('remove', () => bridge!.removeProfile(menuServer.id), 'Сервер удалён') },
     ]} />}
@@ -154,22 +164,22 @@ export default function App() {
         {pickerOpen && <div className="picker-menu">
           {/* The list scrolls; the actions stay pinned to the bottom of the menu however many servers there are. */}
           <div className="picker-list" role="listbox" aria-label="Локация">
-          <button role="option" aria-selected={state.selectedId === 'auto'} className="picker-option" onClick={() => choose('auto')}><AutoTile /><span className="picker-text"><strong>Автовыбор</strong><small>Лучший доступный сервер</small></span>{state.selectedId === 'auto' && <Check size={15} />}</button>
-          {state.profiles.map((p) => <button key={p.id} role="option" aria-selected={state.selectedId === p.id} aria-label={`Выбрать ${privateText(p.name)}`} className="picker-option" onClick={() => choose(p.id)} onContextMenu={(e) => serverMenu(e, p.id)}>
+          <button role="option" aria-selected={state.selectedId === 'auto'} className={`picker-option ${state.selectedId === 'auto' ? 'chosen' : ''}`} onClick={() => choose('auto')}><AutoTile /><span className="picker-text"><strong>Автовыбор</strong><small>Лучший доступный сервер</small></span></button>
+          {state.profiles.map((p) => <button key={p.id} role="option" aria-selected={state.selectedId === p.id} aria-label={`Выбрать ${privateText(p.name)}`} className={`picker-option ${connected && state.connection.profileId === p.id ? 'live' : state.selectedId === p.id ? 'chosen' : ''}`} onClick={() => choose(p.id)} onContextMenu={(e) => serverMenu(e, p.id)}>
             <CountryFlag code={p.countryCode} />
             <span className="picker-text"><strong>{place(p)}</strong><small>VLESS · {security(p)} · {transport(p)}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span>
-            <span className={`picker-latency ${p.lastTest?.status || ''}`}>{latency(p)}</span>{state.selectedId === p.id && <Check size={15} />}
+            <span className={`picker-latency ${p.lastTest?.status || ''}`}>{latency(p)}</span>
           </button>)}
           </div>
           <div className="picker-actions">
-            <button className="button text" disabled={state.checking || !!busy} onClick={() => run('test', () => bridge!.test())}>{state.checking ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}{state.checking ? 'Проверяем…' : 'Проверить задержку'}</button>
+            <button className="button text" disabled={state.checking || !!busy} onClick={() => run('test', () => bridge!.test())}>{state.checking ? <LoaderCircle className="spin" size={14} /> : <CellSignal size={14} />}{state.checking ? 'Проверяем…' : 'Проверить задержку'}</button>
             <button className="button text" onClick={openImport}><Plus size={14} />Добавить подписку</button>
           </div>
         </div>}
       </div> : <span />}
       <div className="topbar-right">
         {view === 'home' && <button className="link-button" onClick={() => { setPickerOpen(false); setView('settings'); }}>Настройки</button>}
-        <div className="window-controls"><button aria-label="Свернуть" title="Свернуть" className="window-min" onClick={() => bridge?.minimize()} /><button aria-label="Закрыть" title="Закрыть" className="window-close" onClick={() => bridge?.close()} /></div>
+        <div className="window-controls"><button aria-label="Свернуть" title="Свернуть" className="window-min" onClick={(e) => { e.currentTarget.blur(); bridge?.minimize(); }} /><button aria-label="Закрыть" title="Закрыть" className="window-close" onClick={(e) => { e.currentTarget.blur(); bridge?.close(); }} /></div>
       </div>
     </header>
 
@@ -204,14 +214,15 @@ export default function App() {
 
     {view === 'home' ? <>
       <main className={`stage is-${state.connection.phase}`}>
-        <WorldMap iso={iso} tone={connected ? 'connected' : shown ? 'selected' : 'idle'} focus={connected || connecting} servers={serverCountries} />
+        <WorldMap iso={iso} tone={connected ? 'connected' : shown ? 'selected' : 'idle'} focus={connected || connecting} travelling={connecting} servers={serverCountries} />
         <div className="status" aria-live="polite">
-          <h1>{connected && <span className="live-dot" />}{title}</h1>
-          <div className="timer mono">{connected ? elapsed(state.connection.since, now) : '--:--:--'}</div>
-          {failed && !(state.connection.errorCode === 'vpn-conflict' && state.environment.tunActive) && !(state.connection.errorCode === 'wfp-blocked' && state.settings.tunDnsProtection !== false) && <p className="connection-error" role="alert">{privateText(state.connection.error)}</p>}
+          {/* As on iOS: the control first, its state and the time under it. */}
           {state.profiles.length
             ? <button className={`power ${connected ? 'on' : ''}`} aria-label={connected ? 'Отключиться' : connecting ? 'Подключение…' : 'Подключиться'} aria-pressed={connected} disabled={connecting || !state.core.ready || !!busy} onClick={() => { if (!connected && mode === 'tun' && !state.environment.elevated) { elevateAndConnect(); return; } run('connection', () => connected ? bridge!.disconnect() : bridge!.connect()); }}>{connecting ? <LoaderCircle className="spin" size={28} /> : <Power size={28} />}</button>
             : <button className="button primary add-first" onClick={openImport}><Plus size={16} />Добавить подписку</button>}
+          <h1>{title}</h1>
+          <div className="timer mono">{connected ? elapsed(state.connection.since, now) : '00:00:00'}</div>
+          {failed && !(state.connection.errorCode === 'vpn-conflict' && state.environment.tunActive) && !(state.connection.errorCode === 'wfp-blocked' && state.settings.tunDnsProtection !== false) && <p className="connection-error" role="alert">{privateText(state.connection.error)}</p>}
         </div>
       </main>
       <footer className="statsbar">

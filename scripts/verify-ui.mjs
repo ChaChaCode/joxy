@@ -44,8 +44,8 @@ try {
   await page.locator('.world-map').waitFor();
   const fonts = await page.evaluate(async () => {
     const loaded = await Promise.all([
-      document.fonts.load('600 19px "Golos Text"', 'Подключение JOXY'),
-      document.fonts.load('500 16px "Geist Mono"', '192.0.2.96 00:12:34 мс'),
+      document.fonts.load('600 16px "Inter"', 'Подключение JOXY'),
+      document.fonts.load('400 13px "Inter"', '192.0.2.96 00:12:34 мс'),
     ]);
     await document.fonts.ready;
     return loaded.map((faces) => faces.length > 0 && faces.every((face) => face.status === 'loaded'));
@@ -62,7 +62,7 @@ try {
   assert.equal((await page.locator('.picker-button').innerText()).trim(), 'Автовыбор');
   assert.equal(await page.locator('.world-map').getAttribute('data-servers'), 'NL', 'Countries with servers stay marked without a selection');
   await page.getByRole('heading', { name: 'Готово к подключению' }).waitFor();
-  assert.equal(await page.locator('.timer').innerText(), '--:--:--');
+  assert.equal(await page.locator('.timer').innerText(), '00:00:00');
   assert.ok(!(await text()).includes('192.0.2.10'));
   await shot('home');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'No horizontal overflow');
@@ -130,7 +130,7 @@ try {
   await page.getByRole('heading', { name: 'Настройки' }).waitFor();
   await page.getByRole('button', { name: 'Серверы', exact: true }).click();
   await page.locator('.subscription-info').waitFor();
-  assert.match(await page.locator('.subscription-info').innerText(), /Осталось 26 дней/);
+  assert.match(await page.locator('.subscription-info').innerText(), /Осталось\s+26 дней/);
   assert.equal(await page.getByRole('progressbar').getAttribute('value'), String(5 * 1073741824));
   assert.ok(!(await text()).includes('192.0.2.10'));
   await shot('subscriptions');
@@ -148,13 +148,19 @@ try {
   await page.locator('.sub-server').first().click({ button: 'right' });
   await page.keyboard.press('Escape');
   await page.getByRole('menu').waitFor({ state: 'hidden' });
+  // A server's menu offers connecting to it.
+  await page.locator('.sub-server').first().click({ button: 'right', position: { x: 30, y: 20 } });
+  await page.getByRole('menuitem', { name: 'Подключиться' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('menu').waitFor({ state: 'hidden' });
   // A single server's latency check from its menu.
   await page.locator('.sub-server').first().click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Проверить задержку' }).click();
   await page.locator('.sub-server').first().getByText('77 мс').waitFor();
   // Deleting asks once more in place: the first press only arms the item.
   const before = (await saved()).profiles.length;
-  await page.locator('.sub-server').last().click({ button: 'right' });
+  // The last card can sit under the toast of the share above: right-click on its flag, at the left.
+  await page.locator('.sub-server').last().click({ button: 'right', position: { x: 30, y: 20 } });
   await page.getByRole('menuitem', { name: 'Удалить сервер' }).click();
   await page.getByRole('menuitem', { name: 'Нажмите ещё раз, чтобы удалить' }).click();
   await page.getByText('Сервер удалён').waitFor();
@@ -167,15 +173,15 @@ try {
   await page.getByText('Ссылка на подписку скопирована').waitFor();
   assert.equal(await page.evaluate(() => window.__sharedSource), (await saved()).sources[0].id);
   await page.evaluate(() => window.__joxyFixture.usage({ upload: 0, download: 1024, total: 0, expire: 0 }));
-  await page.getByText('Без срока действия', { exact: true }).waitFor();
-  assert.match(await page.locator('.subscription-traffic').innerText(), /∞/);
+  await page.getByText('Без срока', { exact: true }).waitFor();
+  assert.match(await page.locator('.subscription-info').innerText(), /Без лимита/);
   assert.equal(await page.getByRole('progressbar').count(), 0);
   await page.evaluate(() => window.__joxyFixture.usage({ expire: 1000000000, upload: 100, download: 100, total: 100 }));
   await page.getByText('Срок истёк', { exact: true }).waitFor();
-  assert.match(await page.locator('.subscription-traffic').innerText(), /Лимит исчерпан/);
+  assert.match(await page.locator('.subscription-info').innerText(), /Лимит исчерпан/);
   await page.evaluate(() => window.__joxyFixture.usage({ download: 1024 }));
-  await page.getByText('Срок не указан', { exact: true }).waitFor();
-  assert.match(await page.locator('.subscription-traffic').innerText(), /Неполная статистика/);
+  await page.getByText('Не указано', { exact: true }).waitFor();
+  assert.match(await page.locator('.subscription-info').innerText(), /Неполная статистика/);
   await page.evaluate(() => window.__joxyFixture.usage(null));
   await page.locator('.subscription-missing').waitFor();
   assert.equal(await page.getByRole('button', { name: 'Поддержка', exact: true }).count(), 1, 'Support does not depend on quota headers');

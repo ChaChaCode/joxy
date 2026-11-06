@@ -1,10 +1,11 @@
 /* Quiet monochrome with one signal: green means protected. Ink carries actions; grey dots carry the world. */
 :root {
-  --font-ui: 'Golos Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'Geist Mono', 'Cascadia Mono', Consolas, monospace;
+  /* One family throughout: numbers, addresses and logs use Inter's tabular figures instead of a second, monospaced font. */
+  --font-ui: 'Inter', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Inter', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
   --background: #ffffff; --sidebar: #fafafa; --surface: #ffffff;
   --surface-hover: #f4f4f5; --text: #111113; --secondary: #6b6b70;
-  --tertiary: #9a9aa0; --line: #ececee; --dot: #cfcfd4; --map-server: #6e6e75;
+  --tertiary: #9a9aa0; --line: #ececee; --dot: #cfcfd4; --map-server: #6e6e75; --map-here: #0a84ff;
   --accent: #111113; --accent-hover: #2b2b2f; --accent-soft: #f1f1f2; --accent-text: #111113;
   --ink: #111113; --ink-hover: #2b2b2f; --on-ink: #ffffff;
   --green: #16a34a; --green-soft: #e9f7ee;
@@ -23,7 +24,7 @@
   :root {
     --background:#111214;--sidebar:#141517;--surface:#17181b;
     --surface-hover:#1f2024;--text:#f2f2f3;--secondary:#9b9ba1;
-    --tertiary:#6f6f76;--line:#26272b;--dot:#34353b;--map-server:#8f9098;
+    --tertiary:#6f6f76;--line:#26272b;--dot:#34353b;--map-server:#8f9098;--map-here:#0a84ff;
     --accent:#f2f2f3;--accent-hover:#ffffff;--accent-soft:#232428;--accent-text:#f2f2f3;
     --ink:#f2f2f3;--ink-hover:#ffffff;--on-ink:#111214;
     --green:#22c55e;--green-soft:#15291c;

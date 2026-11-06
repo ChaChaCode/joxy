@@ -3,7 +3,9 @@ import world from './assets/world-dots.json';
 
 type Tone = 'idle' | 'selected' | 'connected';
 type Camera = { x: number; y: number; z: number };
-const { cols, rows, dots, countries } = world as unknown as { cols: number; rows: number; dots: number[]; countries: { iso: string; center: [number, number] }[] };
+const { cols, rows, dots, countries, places } = world as unknown as { cols: number; rows: number; dots: number[]; countries: { iso: string; center: [number, number] }[]; places: Record<string, [number, number]> };
+// Where the user is: the principal city of Windows' time zone. Nothing is looked up or sent anywhere.
+const zone = (() => { try { return places[Intl.DateTimeFormat().resolvedOptions().timeZone] || null; } catch { return null; } })();
 
 const byCountry = new Map<string, [number, number][]>();
 for (let i = 0; i < dots.length; i += 3) {
@@ -11,13 +13,27 @@ for (let i = 0; i < dots.length; i += 3) {
   const list = byCountry.get(iso);
   if (list) list.push(point); else byCountry.set(iso, [point]);
 }
+// The land dot nearest to that city stands for the user, in blue.
+let here: [number, number] | null = null;
+if (zone) {
+  let best = Infinity;
+  for (let i = 0; i < dots.length; i += 3) {
+    const d = (dots[i] - zone[0]) ** 2 + (dots[i + 1] - zone[1]) ** 2;
+    if (d < best) { best = d; here = [dots[i] + 0.5, dots[i + 1] + 0.5]; }
+  }
+}
 
-const MIN_Z = 1, MAX_Z = 8, BLEED = 1.14; // at z = 1 the world is 14% wider than the view, so its edges leave the frame
-const ANCHOR_Y = 0.42; // the camera centre sits a little above the middle: the status and the button live below
-// Room left between the map's edge and the window's when the map is pulled all the way: more at the top and the
-// bottom, where the top bar and the traffic line sit over the map.
-const PAD = { x: 32, top: 72, bottom: 64 };
-const home = (): Camera => ({ x: cols / 2, y: rows / 2, z: 1 });
+const MIN_Z = 1, MAX_Z = 8, BLEED = 0.94; // at z = 1, the farthest out, the whole world fits the view with room at the sides
+const ANCHOR_Y = 0.4; // the camera centre sits a little above the middle: the status and the button live below
+// How far the map can be pulled: its edge may come as far in as this share of the view, so a corner of the world,
+// Australia say, can be brought well inside with open space around it.
+const REACH = 0.35;
+// A convex lens over the map: dots near its centre spread out and grow, those near the corners stay put, so the world
+// reads as slightly curved. k is the bulge at the centre; the centre is a share of the window's width and height.
+const LENS = { k: 0.1, x: 0.5, y: 0.5 };
+// The map opens 20% closer than the whole world, which zooming out still shows.
+const HOME_Z = 1.2;
+const home = (): Camera => ({ x: cols / 2, y: rows / 2, z: HOME_Z });
 
 // Framing for a connection: the dots near the country's centre, so overseas territories do not stretch the zoom.
 function frame(iso: string): Camera | null {
@@ -30,12 +46,46 @@ function frame(iso: string): Camera | null {
   return { x: cx, y: cy, z: Math.min(2.6, Math.max(1.7, cols / Math.max(span * 2.4, 1))) };
 }
 
+// The way a connection takes on the map: land dots along the straight line from the user's dot to the country's
+// centre, about one cell apart, ending on the country's dot nearest its centre. Over sea there are no dots, so the light
+// jumps the water.
+function route(iso: string): [number, number][] {
+  const country = countries.find((c) => c.iso === iso), own = byCountry.get(iso);
+  if (!here || !country || !own?.length) return [];
+  const [ax, ay] = here, end = own.reduce((best, p) => Math.hypot(p[0] - country.center[0] - 0.5, p[1] - country.center[1] - 0.5) < Math.hypot(best[0] - country.center[0] - 0.5, best[1] - country.center[1] - 0.5) ? p : best);
+  const dx = end[0] - ax, dy = end[1] - ay, len = Math.hypot(dx, dy);
+  if (len < 1) return [here];
+  const near: { u: number; p: [number, number] }[] = [];
+  for (const points of byCountry.values()) for (const p of points) {
+    const u = ((p[0] - ax) * dx + (p[1] - ay) * dy) / (len * len);
+    if (u > 0 && u < 1 && Math.abs((p[0] - ax) * dy - (p[1] - ay) * dx) / len <= 0.75) near.push({ u, p });
+  }
+  near.sort((a, b) => a.u - b.u);
+  const path: [number, number][] = [here];
+  let last = 0;
+  for (const { u, p } of near) if ((u - last) * len >= 0.9) { path.push(p); last = u; }
+  path.push(end);
+  return path;
+}
+// The train: while connecting, a car leaves the user's dot every SPAWN_MS and moves one dot every CAR_MS; once the
+// connection is made no new car leaves, and those on the way still arrive.
+const CAR_MS = 55, SPAWN_MS = 350;
+// While connecting, the camera holds both ends of that way in view.
+function journey(iso: string): Camera | null {
+  const country = countries.find((c) => c.iso === iso);
+  if (!here || !country) return null;
+  const [bx, by] = [country.center[0] + 0.5, country.center[1] + 0.5];
+  const span = Math.max(Math.abs(bx - here[0]) * 1.5, Math.abs(by - here[1]) * 3, 1);
+  return { x: (here[0] + bx) / 2, y: (here[1] + by) / 2, z: Math.min(2.4, Math.max(MIN_Z, cols / (BLEED * span))) };
+}
+
 // Past the edge the map follows less and less, so the boundary reads as soft, not frozen.
 const rubber = (over: number, size: number) => (over * size * 0.55) / (size + 0.55 * Math.abs(over));
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // servers: countries the user has servers in; they stay marked whatever is selected, so the map shows where one can go.
-export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | null; tone: Tone; focus: boolean; servers?: string[] }) {
+// travelling: a connection is being made; a train of lights runs dot by dot from the user's dot to the country.
+export function WorldMap({ iso, tone, focus, travelling = false, servers = [] }: { iso: string | null; tone: Tone; focus: boolean; travelling?: boolean; servers?: string[] }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const cam = useRef<Camera>(home());
   const vel = useRef<Camera>({ x: 0, y: 0, z: 0 });
@@ -45,15 +95,17 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
   const drag = useRef<{ id: number; x: number; y: number; rawX: number; rawY: number; history: { x: number; y: number; t: number }[] } | null>(null);
   const frameId = useRef(0);
   const [moved, setMoved] = useState(false);
-  const props = useRef({ iso, tone, servers: new Set(servers) });
-  props.current = { iso, tone, servers: new Set(servers) };
+  const props = useRef({ iso, tone, focus, travelling, servers: new Set(servers) });
+  props.current = { iso, tone, focus, travelling, servers: new Set(servers) };
+  const trip = useRef<{ path: [number, number][]; cars: number[]; spawning: boolean; last: number } | null>(null);
+  const tripFrame = useRef(0);
 
   const scale = (w: number) => (w * BLEED / cols) * cam.current.z;
-  // The camera may go as far as the map's edge sits PAD inside the view, as content with insets does on iOS; where the
-  // map is smaller than that, it stays centred on that axis and can only be pulled against the resistance.
+  // The camera may go as far as the map's edge sits REACH of the view in from the window's edge; beyond that the map
+  // follows against the resistance and springs back.
   const limits = (z: number) => {
     const el = canvas.current!, w = el.clientWidth || 1, h = el.clientHeight || 1, k = (w * BLEED / cols) * z, ay = h * ANCHOR_Y;
-    let x0 = (w / 2 - PAD.x) / k, x1 = cols - (w / 2 - PAD.x) / k, y0 = (ay - PAD.top) / k, y1 = rows - (h - ay - PAD.bottom) / k;
+    let x0 = (w / 2 - w * REACH) / k, x1 = cols - (w / 2 - w * REACH) / k, y0 = (ay - h * REACH) / k, y1 = rows - (h - ay - h * REACH) / k;
     if (x0 > x1) x0 = x1 = cols / 2;
     if (y0 > y1) y0 = y1 = rows / 2;
     return { x0, x1, y0, y1, vw: w / k, vh: h / k };
@@ -71,20 +123,36 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
     const style = getComputedStyle(el), k = scale(w), c = cam.current;
     const r = Math.min(Math.max(k * 0.29, 0.7), 7);
     const ax = w / 2, ay = h * ANCHOR_Y;
+    const lx = w * LENS.x, ly = h * LENS.y, lr = Math.hypot(w, h) / 2;
     const { iso: chosen, tone: t, servers: available } = props.current;
     // Every frame is drawn at the real scale, so dots stay crisp while the camera moves.
+    // A grid point on screen, through the lens: r_d = r * (1 + k(1 - r²)) from its centre, and how much a dot there grows
+    // with the local stretch (tangential × radial).
+    const place = (x: number, y: number): [number, number, number] => {
+      const sx = ax + (x - c.x) * k, sy = ay + (y - c.y) * k;
+      const dx = (sx - lx) / lr, dy = (sy - ly) / lr, d2 = Math.min(dx * dx + dy * dy, 1);
+      const f = 1 + LENS.k * (1 - d2), radial = 1 + LENS.k * (1 - 3 * d2);
+      return [lx + dx * f * lr, ly + dy * f * lr, Math.sqrt(Math.max(f * radial, 0.25))];
+    };
     const paint = (points: Iterable<[number, number]>, color: string) => {
       ctx.fillStyle = color; ctx.beginPath();
       for (const [x, y] of points) {
-        const sx = ax + (x - c.x) * k, sy = ay + (y - c.y) * k;
-        if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
-        ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        const [sx, sy, grow] = place(x, y), rr = r * grow;
+        if (sx < -rr || sx > w + rr || sy < -rr || sy > h + rr) continue;
+        ctx.moveTo(sx + rr, sy); ctx.arc(sx, sy, rr, 0, Math.PI * 2);
       }
       ctx.fill();
     };
     const land = style.getPropertyValue('--dot'), server = style.getPropertyValue('--map-server');
     for (const [code, points] of byCountry) if (code !== chosen) paint(points, available.has(code) ? server : land);
     if (chosen) paint(byCountry.get(chosen) || [], t === 'connected' ? style.getPropertyValue('--green') : t === 'selected' ? style.getPropertyValue('--text') : available.has(chosen) ? server : land);
+    // The user's dot stays blue; the train's cars are green, each on the dot it has reached.
+    if (here) paint([here], style.getPropertyValue('--map-here'));
+    const tr = trip.current;
+    if (tr) {
+      const now = performance.now();
+      paint(tr.cars.map((c) => tr.path[Math.min(tr.path.length - 1, Math.floor((now - c) / CAR_MS))]), style.getPropertyValue('--green'));
+    }
   }, []);
 
   // One loop drives springs and momentum; it stops itself when everything is at rest.
@@ -124,9 +192,34 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
     target.current = next; tick();
   }, [draw, tick]);
 
-  // Connecting flies to the country; disconnecting returns to the whole world.
-  const destination = () => inside((focus && iso ? frame(iso) : null) || home());
-  useEffect(() => { goTo(destination()); setMoved(false); }, [focus, iso]);
+  // Connecting shows the way there; once connected the camera flies to the country at once, while the last cars still
+  // arrive; disconnected, it returns to the whole world.
+  const destination = () => {
+    const { iso: chosen, focus: near, travelling: going } = props.current, f = near || going;
+    return inside((f && chosen ? (going && here && journey(chosen)) || frame(chosen) : null) || home());
+  };
+  useEffect(() => { goTo(destination()); setMoved(false); }, [focus, iso, travelling]);
+  const runTrip = useCallback(() => {
+    cancelAnimationFrame(tripFrame.current);
+    const step = () => {
+      const t = trip.current;
+      if (!t) return;
+      const now = performance.now();
+      if (t.spawning && now - t.last >= SPAWN_MS) { t.cars.push(now); t.last = now; }
+      t.cars = t.cars.filter((c) => (now - c) / CAR_MS < t.path.length);
+      draw();
+      if (t.spawning || t.cars.length) tripFrame.current = requestAnimationFrame(step);
+      else { trip.current = null; draw(); }
+    };
+    tripFrame.current = requestAnimationFrame(step);
+  }, [draw]);
+  // A new connection starts a train; when it is made (or fails) the train only stops leaving.
+  useEffect(() => {
+    if (travelling && iso && !reduced()) {
+      const path = route(iso), now = performance.now();
+      if (path.length > 1) { trip.current = { path, cars: [now], spawning: true, last: now }; runTrip(); }
+    } else if (trip.current) trip.current.spawning = false;
+  }, [travelling, iso, runTrip]);
   useEffect(() => { draw(); }, [tone, iso, servers.join(), draw]);
   useEffect(() => {
     const el = canvas.current!;
@@ -134,7 +227,7 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
     resize.observe(el);
     const scheme = matchMedia('(prefers-color-scheme: dark)');
     scheme.addEventListener('change', draw);
-    return () => { resize.disconnect(); scheme.removeEventListener('change', draw); cancelAnimationFrame(frameId.current); };
+    return () => { resize.disconnect(); scheme.removeEventListener('change', draw); cancelAnimationFrame(frameId.current); cancelAnimationFrame(tripFrame.current); };
   }, [draw]);
 
   const zoomAt = (factor: number, sx: number, sy: number, animate = false) => {
