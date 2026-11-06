@@ -22,6 +22,7 @@
     "pack": "npm run build && npm run build:guard && electron-builder --win portable --x64",
     "verify:ui": "node scripts/verify-ui.mjs",
     "shots": "node scripts/shots.mjs artifacts/design-0.6.3",
+    "shots:readme": "node scripts/readme-shots.mjs docs/screenshots",
     "verify:live": "node scripts/verify-live.mjs",
     "verify:proxy": "node scripts/verify-proxy.mjs",
     "verify:desktop": "node scripts/verify-desktop.mjs",
