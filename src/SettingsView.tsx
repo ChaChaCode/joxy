@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { Activity, ArrowDown, Check, CircleAlert, CircleCheck, Clock3, Download, Eye, Globe2, LoaderCircle, Network, Plus, RefreshCw, Servers, Settings2 } from './icons';
 import type { Bridge, Settings, State } from './types';
 import { Select } from './Select';
@@ -12,7 +12,7 @@ const sections: { id: Section; label: string; icon: typeof Settings2 }[] = [
   { id: 'connection', label: 'Подключение', icon: Network },
   { id: 'routing', label: 'Маршрутизация', icon: Globe2 },
   { id: 'privacy', label: 'Приватность', icon: Eye },
-  { id: 'subscriptions', label: 'Подписки', icon: Servers },
+  { id: 'subscriptions', label: 'Серверы', icon: Servers },
   { id: 'diagnostics', label: 'Диагностика', icon: Activity },
 ];
 
@@ -26,9 +26,10 @@ function Segmented<T extends string>({ label, value, options, disabled, change }
   return <div className="segmented" role="radiogroup" aria-label={label}>{options.map(([id, text]) => <button key={id} role="radio" aria-checked={value === id} className={value === id ? 'on' : ''} disabled={disabled} onClick={() => change(id)}>{text}</button>)}</div>;
 }
 
-export function SettingsView({ state, bridge, busy, run, back, privateText, addressesVisible, setAddressesVisible, openImport, now }: {
+export function SettingsView({ state, bridge, busy, run, back, privateText, addressesVisible, setAddressesVisible, openImport, now, serverMenu }: {
   state: State; bridge?: Bridge; busy: string; run: (label: string, action: () => Promise<unknown>, success?: string) => Promise<void>;
   back: () => void; privateText: (s?: string | null) => string; addressesVisible: boolean; setAddressesVisible: (v: boolean) => void; openImport: () => void; now: number;
+  serverMenu: (e: MouseEvent, id: string, kind?: 'profile' | 'source') => void;
 }) {
   const [section, setSection] = useState<Section>('general');
   const s = state.settings;
@@ -80,11 +81,12 @@ export function SettingsView({ state, bridge, busy, run, back, privateText, addr
         </>}
 
         {section === 'routing' && <>
+          <Row title="Российские сайты напрямую" description="Домены .ru, .su, .рф и .москва открываются без VPN. Российские сервисы на .com добавьте ниже."><Toggle label="Российские сайты напрямую" value={!!s.bypassRu} disabled={locked} change={(v) => apply({ bypassRu: v })} /></Row>
           <div className="rules">
             <h3>Раздельное туннелирование</h3>
             <p>Сайты и подсети, которые открываются напрямую, без VPN. По одному на строку; домены включают поддомены.</p>
             <textarea aria-label="Адреса без VPN" spellCheck={false} disabled={locked} value={rules} placeholder={'example.com\n192.168.10.0/24'} onChange={(e) => setRules(e.target.value)} />
-            <div className="rules-actions"><span>{s.directRules.length ? `Сейчас без VPN: ${s.directRules.length}` : 'Весь трафик идёт через VPN.'}</span><button className="button primary" disabled={locked || !rulesDirty} onClick={() => run('rules', () => bridge!.settings({ directRules: rules.split(/\r?\n/).map((r) => r.trim()).filter(Boolean) }), 'Маршрутизация сохранена')}>Сохранить</button></div>
+            <div className="rules-actions"><span>{s.bypassRu ? `Без VPN: российские домены${s.directRules.length ? ` и ещё ${s.directRules.length}` : ''}.` : s.directRules.length ? `Сейчас без VPN: ${s.directRules.length}` : 'Весь трафик идёт через VPN.'}</span><button className="button primary" disabled={locked || !rulesDirty} onClick={() => run('rules', () => bridge!.settings({ directRules: rules.split(/\r?\n/).map((r) => r.trim()).filter(Boolean) }), 'Маршрутизация сохранена')}>Сохранить</button></div>
           </div>
         </>}
 
@@ -99,11 +101,11 @@ export function SettingsView({ state, bridge, busy, run, back, privateText, addr
           <div className="section-actions"><span>{countProfiles(state.profiles.length)}</span><button className="button text" disabled={state.checking || !state.profiles.length || !!busy} onClick={() => run('test', () => bridge!.test())}>{state.checking ? <LoaderCircle size={14} className="spin" /> : <Activity size={14} />}Проверить все</button><button className="button text" disabled={!!busy || !state.sources.some((x) => x.remote)} onClick={() => run('refresh', () => bridge!.refresh(), 'Подписки обновлены')}><RefreshCw size={14} className={busy === 'refresh' ? 'spin' : ''} />Обновить</button><button className="button primary" onClick={openImport}><Plus size={15} />Добавить</button></div>
           <div className="subscription-groups">{state.sources.map((source) => {
             const profiles = state.profiles.filter((p) => p.sourceId === source.id);
-            return <ServerGroup key={source.id} source={{ ...source, label: privateText(source.label), announcement: privateText(source.announcement) }} count={profiles.length} current={state.connection.phase === 'connected' && profiles.some((p) => p.id === state.connection.profileId)} now={now} busy={!!busy} checking={state.checking} refresh={() => run('refresh', () => bridge!.refresh(source.id), 'Подписка обновлена')} test={() => run('test', () => bridge!.test(source.id))} open={(kind) => run('provider', () => bridge!.openProvider(source.id, kind))}>
-              {profiles.map((p) => <div className="sub-server" key={p.id}><CountryFlag code={p.countryCode} /><span><strong>{privateText(p.name)}</strong><small>VLESS · {transport(p)} · {p.security.toUpperCase()}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span><em className={p.lastTest?.status || ''}>{p.lastTest?.status === 'ok' ? `${p.lastTest.latency} мс` : p.lastTest?.status === 'error' ? 'Недоступен' : p.lastTest?.status === 'checking' ? 'Проверка…' : 'Не проверен'}</em></div>)}
+            return <ServerGroup key={source.id} source={{ ...source, label: privateText(source.label), announcement: privateText(source.announcement) }} count={profiles.length} current={state.connection.phase === 'connected' && profiles.some((p) => p.id === state.connection.profileId)} now={now} busy={!!busy} checking={state.checking} refresh={() => run('refresh', () => bridge!.refresh(source.id), 'Подписка обновлена')} test={() => run('test', () => bridge!.test(source.id))} open={(kind) => run('provider', () => bridge!.openProvider(source.id, kind))} onMenu={(e) => serverMenu(e, source.id, 'source')}>
+              {profiles.map((p) => <div className="sub-server" key={p.id} onContextMenu={(e) => serverMenu(e, p.id)}><CountryFlag code={p.countryCode} /><span><strong>{privateText(p.name)}</strong><small>VLESS · {transport(p)} · {p.security.toUpperCase()}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span><em className={p.lastTest?.status || ''}>{p.lastTest?.status === 'ok' ? `${p.lastTest.latency} мс` : p.lastTest?.status === 'error' ? 'Недоступен' : p.lastTest?.status === 'checking' ? 'Проверка…' : 'Не проверен'}</em></div>)}
             </ServerGroup>;
           })}</div>
-          {!state.profiles.length && <p className="hint">Подписок пока нет.</p>}
+          {!state.profiles.length && <p className="hint">Серверов пока нет.</p>}
         </>}
 
         {section === 'diagnostics' && <>

@@ -2,9 +2,12 @@ import { isIP } from 'node:net';
 
 export const defaultSettings = () => ({
   mode: 'system', systemProxy: true, autoFallback: true, timeout: 8000, interface: 'auto', closeToTray: true,
-  dnsProvider: 'cloudflare', bypassLan: true, directRules: [], tunMtu: 1400, tunIpv6: 'block', tunDnsProtection: true, killSwitch: false, autoConnect: false, theme: 'system',
+  dnsProvider: 'cloudflare', bypassLan: true, bypassRu: false, directRules: [], tunMtu: 1400, tunIpv6: 'block', tunDnsProtection: true, killSwitch: false, autoConnect: false, theme: 'system',
 });
-export const networkKeys = ['mode', 'interface', 'dnsProvider', 'bypassLan', 'directRules', 'tunMtu', 'tunIpv6', 'tunDnsProtection'];
+export const networkKeys = ['mode', 'interface', 'dnsProvider', 'bypassLan', 'bypassRu', 'directRules', 'tunMtu', 'tunIpv6', 'tunDnsProtection'];
+// Russian national domains, .рф and .москва in punycode: with bypassRu their sites open without the VPN. Russian
+// services on .com or .net are not caught; they go in the direct rules by hand.
+export const russianDomains = ['domain:ru', 'domain:su', 'domain:xn--p1ai', 'domain:xn--80adxhks'];
 export function normalizeSettings(value = {}) {
   const mode = ['system', 'tun', 'local'].includes(value.mode) ? value.mode : value.systemProxy === false ? 'local' : 'system';
   return { ...defaultSettings(), ...value, mode, systemProxy: mode === 'system' };
@@ -33,7 +36,7 @@ export function settingsPatch(current, patch, interfaces = []) {
   const next = normalizeSettings(current);
   if (patch.mode != null) { if (!['system', 'tun', 'local'].includes(patch.mode)) throw new Error('Неизвестный режим подключения.'); next.mode = patch.mode; }
   else if (typeof patch.systemProxy === 'boolean') next.mode = patch.systemProxy ? 'system' : 'local';
-  for (const key of ['autoFallback', 'closeToTray', 'bypassLan', 'tunDnsProtection', 'killSwitch', 'autoConnect']) {
+  for (const key of ['autoFallback', 'closeToTray', 'bypassLan', 'bypassRu', 'tunDnsProtection', 'killSwitch', 'autoConnect']) {
     if (key in patch) { if (typeof patch[key] !== 'boolean') throw new Error('Некорректный переключатель.'); next[key] = patch[key]; }
   }
   if (patch.timeout != null) { if (![5000, 8000, 12000].includes(patch.timeout)) throw new Error('Некорректный тайм-аут.'); next.timeout = patch.timeout; }

@@ -332,3 +332,64 @@ test('a leak protection that Windows refuses fails once, not per server, and say
   await assert.rejects(f.controller.connect(), /TUN другого VPN \(throne-tun\)/);
   assert.equal(f.controller.connection.errorCode, 'vpn-conflict');
 });
+
+test('deleting a server keeps it deleted when its subscription refreshes, and the server in use cannot be deleted', async () => {
+  const uuid = (n) => `1b4e28ba-2fa1-41d2-883f-0016d3cca42${n}`;
+  const link = (n) => `vless://${uuid(n)}@192.0.2.${20 + n}:443?type=tcp&security=reality&sni=example.com&pbk=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG&sid=ab12#Server${n}`;
+  const { controller, data } = fixture();
+  data.profiles = [];
+  controller.subscriptionFetcher = async () => ({ body: [link(1), link(2), link(3)].join('\n'), host: 'example.com', metadata: {} });
+  await controller.importValue('https://example.com/sub');
+  const [first, second] = data.profiles;
+  data.selectedId = first.id;
+  await controller.removeProfile(first.id);
+  assert.equal(data.profiles.length, 2); assert.equal(data.selectedId, 'auto');
+  await controller.refreshSources();
+  assert.equal(data.profiles.length, 2, 'A refresh does not bring the deleted server back');
+  assert.ok(!data.profiles.some((p) => p.id === first.id));
+  assert.equal(data.sources[0].count, 2);
+  assert.equal('removed' in controller.snapshot().sources[0], false, 'The window does not see the list');
+  controller.connection = { phase: 'connected', profileId: second.id };
+  await assert.rejects(controller.removeProfile(second.id), /отключитесь/);
+  await assert.rejects(controller.removeSource(data.sources[0].id), /отключитесь/);
+  controller.connection = { phase: 'idle', profileId: null };
+  await controller.removeSource(data.sources[0].id);
+  assert.deepEqual([data.profiles.length, data.sources.length], [0, 0]);
+  await assert.rejects(controller.removeProfile('nope'), /не найден/);
+});
+
+test('deleting the last server of a pasted list removes the list too', async () => {
+  const { controller, data } = fixture();
+  data.profiles = [];
+  await controller.importValue('vless://1b4e28ba-2fa1-41d2-883f-0016d3cca427@192.0.2.20:443?type=tcp&security=reality&sni=example.com&pbk=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG&sid=ab12#Solo');
+  await controller.removeProfile(data.profiles[0].id);
+  assert.deepEqual([data.profiles.length, data.sources.length], [0, 0]);
+});
+
+test('a TUN check that fails because another VPN came up meanwhile names that VPN, without trying every server', async () => {
+  const f = fixture({ elevated: true }); f.data.settings.mode = 'tun'; f.data.selectedId = 'auto';
+  const factory = f.controller.engineFactory;
+  f.controller.engineFactory = () => { const e = factory(); e.probe = async () => { throw new Error('Тайм-аут проверки TUN.'); }; return e; };
+  let reads = 0;
+  f.controller.environmentReader = async () => ({ interface: 'Ethernet', interfaces: ['Ethernet'], elevated: true, tunActive: reads++ > 0, foreignTunnels: reads > 1 ? [{ name: 'throne-tun', routeCount: 80 }] : [] });
+  await assert.rejects(f.controller.connect(), /TUN другого VPN \(throne-tun\)/);
+  assert.equal(f.controller.connection.errorCode, 'vpn-conflict');
+  assert.equal(f.calls.filter((c) => c.startsWith('start:')).length, 1);
+});
+
+test('checking one server refuses an unknown one', async () => {
+  const { controller } = fixture();
+  await assert.rejects(controller.checkAll(null, 'nope'), /Сервер не найден/);
+  await assert.rejects(controller.checkAll(null, 42), /Сервер не найден/);
+  assert.equal(controller.checking, false);
+});
+
+test('the server in use is checked through the live tunnel, not by a fresh connection', async () => {
+  const { controller, calls, data } = fixture();
+  await controller.connect();
+  const id = controller.connection.profileId, probes = calls.filter((c) => c === 'probe').length;
+  await controller.checkAll(null, id);
+  assert.equal(calls.filter((c) => c === 'probe').length, probes + 1, 'The running engine answered');
+  assert.deepEqual([data.profiles.find((p) => p.id === id).lastTest.status, data.profiles.find((p) => p.id === id).lastTest.latency], ['ok', 42]);
+  await controller.close();
+});

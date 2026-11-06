@@ -6,7 +6,7 @@ export interface Profile {
 }
 export interface Settings {
   mode: 'system' | 'tun' | 'local'; systemProxy: boolean; autoFallback: boolean; timeout: number; interface: string; closeToTray: boolean;
-  dnsProvider: 'cloudflare' | 'google'; bypassLan: boolean; directRules: string[]; tunMtu: number; tunIpv6: 'block' | 'tunnel'; tunDnsProtection: boolean; killSwitch: boolean; autoConnect?: boolean; theme?: 'system' | 'light' | 'dark';
+  dnsProvider: 'cloudflare' | 'google'; bypassLan: boolean; bypassRu?: boolean; directRules: string[]; tunMtu: number; tunIpv6: 'block' | 'tunnel'; tunDnsProtection: boolean; killSwitch: boolean; autoConnect?: boolean; theme?: 'system' | 'light' | 'dark';
 }
 export interface Source {
   id: string; label: string; host: string; updatedAt: string; count: number; remote?: boolean;
@@ -29,9 +29,9 @@ export interface Bridge {
   state(): Promise<State>;
   import(value: string): Promise<{ count: number; rejected: string[] }>;
   importFile(): Promise<{ count: number; rejected: string[] } | null>;
-  refresh(id?: string): Promise<void>; select(id: string): Promise<void>;
+  refresh(id?: string): Promise<void>; select(id: string): Promise<void>; share(id: string): Promise<void>; removeProfile(id: string): Promise<void>; removeSource(id: string): Promise<void>;
   openProvider(id: string, kind: 'supportUrl' | 'websiteUrl'): Promise<void>;
-  connect(): Promise<void>; disconnect(): Promise<void>; test(id?: string): Promise<void>;
+  connect(): Promise<void>; disconnect(): Promise<void>; test(id?: string): Promise<void>; testProfile(id: string): Promise<void>;
   settings(patch: Partial<Settings>): Promise<void>; environment(): Promise<State['environment']>;
   elevate(patch: Partial<Settings>, options?: { connect?: boolean }): Promise<void>;
   exportDiagnostics(): Promise<boolean>; checkUpdate(): Promise<State['update']>; installUpdate(): Promise<void>; minimize(): Promise<void>; close(): Promise<void>;

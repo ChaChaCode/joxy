@@ -52,3 +52,18 @@ test('elevation is read from the integrity level of the token', async () => {
   assert.equal(elevatedFromGroups('Mandatory Label\Medium Mandatory Level Label   S-1-16-8192'), false);
   assert.equal(elevatedFromGroups(''), false);
 });
+
+test('Russian domains go direct only with the switch on, ahead of the user rules', () => {
+  const profile = parseVless('vless://00000000-0000-4000-8000-000000000000@192.0.2.10:443?security=tls&sni=example.com&type=tcp#test');
+  const rules = (settings) => buildConfig(profile, { http: 31001, socks: 31002 }, '', settings).routing?.rules || [];
+  const ru = (r) => r.domain?.includes('domain:ru');
+  for (const mode of ['tun', 'system']) {
+    assert.ok(!rules({ mode }).some(ru), `${mode}: off by default`);
+    const on = rules({ mode, bypassRu: true, directRules: ['example.org'] });
+    const rule = on.find(ru);
+    assert.deepEqual(rule.domain, ['domain:ru', 'domain:su', 'domain:xn--p1ai', 'domain:xn--80adxhks']);
+    assert.equal(rule.outboundTag, 'direct');
+  }
+  assert.equal(settingsPatch({}, { bypassRu: true }).bypassRu, true);
+  assert.throws(() => settingsPatch({}, { bypassRu: 'yes' }), /переключатель/);
+});

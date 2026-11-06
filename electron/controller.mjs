@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
-import { parseSubscription, publicProfile } from './profiles.mjs';
+import { parseSubscription, publicProfile, shareLink } from './profiles.mjs';
 import { XrayEngine, testProfile } from './engine.mjs';
 import { environment, fetchSubscription } from './network.mjs';
 import { settingsPatch, networkKeys, normalizeSettings } from './settings.mjs';
@@ -82,7 +82,7 @@ export class Controller extends EventEmitter {
   publish() { if (!this.closed) this.emit('state', this.snapshot()); }
   snapshot() {
     const d = this.store.data;
-    return { version: this.version, profiles: d.profiles.map(publicProfile), sources: d.sources.map(({ url, ...safe }) => ({ ...safe, remote: !!url, count: d.profiles.filter((p) => p.sourceId === safe.id).length })), selectedId: d.selectedId, settings: d.settings, connection: this.connection, stats: this.stats, logs: this.logs, environment: this.env, core: this.core, checking: this.checking, killSwitch: { available: !!this.killSwitch, armed: !!this.killSwitch?.armed }, update: this.updater?.state || null };
+    return { version: this.version, profiles: d.profiles.map(publicProfile), sources: d.sources.map(({ url, removed, ...safe }) => ({ ...safe, remote: !!url, count: d.profiles.filter((p) => p.sourceId === safe.id).length })), selectedId: d.selectedId, settings: d.settings, connection: this.connection, stats: this.stats, logs: this.logs, environment: this.env, core: this.core, checking: this.checking, killSwitch: { available: !!this.killSwitch, armed: !!this.killSwitch?.armed }, update: this.updater?.state || null };
   }
   networkInterface() { return this.store.data.settings.interface === 'auto' ? this.env.interface || '' : this.store.data.settings.interface; }
   // Pinned only when the user picked an interface: with none, Xray follows the default route itself (TUN) or needs no binding (proxy).
@@ -99,8 +99,11 @@ export class Controller extends EventEmitter {
     const old = refreshId ? d.sources.find((s) => s.id === refreshId) : url ? d.sources.find((s) => s.url === url) : null;
     const id = old?.id || randomUUID();
     const previous = new Map(d.profiles.map((p) => [p.id, p]));
-    const source = { id, label: metadata.title || old?.label || (host || 'Мои серверы'), host: host || 'Из буфера обмена', url, updatedAt: new Date().toISOString(), count: profiles.length, usage: metadata.usage || null, announcement: metadata.announcement || null, supportUrl: metadata.supportUrl || null, websiteUrl: metadata.websiteUrl || null };
-    const incoming = profiles.map((p) => ({ ...p, countryCode: p.countryCode || metadata.countryCode || null, sourceId: id, lastTest: previous.get(p.id)?.lastTest || null }));
+    // Servers the user deleted from a subscription stay deleted when it refreshes, as long as the provider still lists them.
+    const removed = profiles.filter((p) => old?.removed?.includes(p.id)).map((p) => p.id);
+    const kept = profiles.filter((p) => !removed.includes(p.id));
+    const source = { id, label: metadata.title || old?.label || (host || 'Мои серверы'), host: host || 'Из буфера обмена', url, updatedAt: new Date().toISOString(), count: kept.length, usage: metadata.usage || null, announcement: metadata.announcement || null, supportUrl: metadata.supportUrl || null, websiteUrl: metadata.websiteUrl || null, ...(url && removed.length ? { removed } : {}) };
+    const incoming = kept.map((p) => ({ ...p, countryCode: p.countryCode || metadata.countryCode || null, sourceId: id, lastTest: previous.get(p.id)?.lastTest || null }));
     // A profile may be shared by two subscriptions: do not create duplicate identities.
     const incomingIds = new Set(incoming.map((p) => p.id));
     const next = [...d.profiles.filter((p) => p.sourceId !== id && !incomingIds.has(p.id)), ...incoming];
@@ -129,6 +132,35 @@ export class Controller extends EventEmitter {
     })();
     try { await this.refreshDone; } finally { this.refreshing = false; }
   }
+  // Deleting is refused for the server in use, and while a connection or check runs.
+  assertIdle(ids) {
+    if (this.busy || this.checking) throw new Error('Дождитесь завершения подключения или проверки.');
+    if (this.connection.phase !== 'idle' && this.connection.phase !== 'error' && ids.includes(this.connection.profileId)) throw new Error('Сначала отключитесь от этого сервера.');
+  }
+  async removeProfile(id) {
+    const d = this.store.data;
+    const profile = typeof id === 'string' && d.profiles.find((p) => p.id === id);
+    if (!profile) throw new Error('Сервер не найден.');
+    this.assertIdle([id]);
+    d.profiles = d.profiles.filter((p) => p.id !== id);
+    const source = d.sources.find((s) => s.id === profile.sourceId);
+    const left = d.profiles.filter((p) => p.sourceId === profile.sourceId).length;
+    if (source?.url) Object.assign(source, { removed: [...new Set([...(source.removed || []), id])], count: left });
+    else if (source && !left) d.sources = d.sources.filter((s) => s !== source);
+    else if (source) source.count = left;
+    if (d.selectedId === id) d.selectedId = 'auto';
+    await this.store.save(); this.log('info', `Сервер удалён: ${profile.name}.`); this.publish();
+  }
+  async removeSource(id) {
+    const d = this.store.data;
+    const source = typeof id === 'string' && d.sources.find((s) => s.id === id);
+    if (!source) throw new Error('Подписка не найдена.');
+    const ids = d.profiles.filter((p) => p.sourceId === id).map((p) => p.id);
+    this.assertIdle(ids);
+    d.profiles = d.profiles.filter((p) => p.sourceId !== id); d.sources = d.sources.filter((s) => s.id !== id);
+    if (ids.includes(d.selectedId)) d.selectedId = 'auto';
+    await this.store.save(); this.log('info', `Подписка удалена: ${source.label}.`); this.publish();
+  }
   async select(id) {
     if (id !== 'auto' && !this.store.data.profiles.some((p) => p.id === id)) throw new Error('Профиль не найден.');
     this.store.data.selectedId = id; await this.store.save(); this.publish();
@@ -151,6 +183,12 @@ export class Controller extends EventEmitter {
       }
     }
     await this.syncKillSwitch();
+  }
+  // The link carries the server's keys, so it goes to the clipboard from here and never to the window or the log.
+  shareLink(id) {
+    const profile = typeof id === 'string' && this.store.data.profiles.find((p) => p.id === id);
+    if (!profile) throw new Error('Сервер не найден.');
+    return shareLink(profile);
   }
   wantsKillSwitch() { return !!this.killSwitch && normalizeSettings(this.store.data.settings).mode === 'tun' && this.store.data.settings.killSwitch === true; }
   async armKillSwitch() {
@@ -194,24 +232,30 @@ export class Controller extends EventEmitter {
     try { const address = await this.hostResolver(host); this.resolvedHosts.set(host, address); return address; }
     catch (e) { if (cached) return cached; throw e; }
   }
-  async checkAll(sourceId = null) {
+  // sourceId: only that subscription's servers; profileId: only that one server.
+  async checkAll(sourceId = null, profileId = null) {
     if (this.refreshing) await this.refreshDone.catch(() => {});
     if (this.checking) return;
     if (!this.core.ready) throw new Error(this.core.error);
     if (!this.store.data.profiles.length) throw new Error('Сначала добавьте подписку.');
     if (sourceId !== null && (typeof sourceId !== 'string' || !this.store.data.sources.some((s) => s.id === sourceId))) throw new Error('Подписка не найдена.');
+    if (profileId !== null && (typeof profileId !== 'string' || !this.store.data.profiles.some((p) => p.id === profileId))) throw new Error('Сервер не найден.');
     this.checking = true; this.publish();
     this.testAbort = new AbortController();
     let finishTests;
     this.testsDone = new Promise((resolve) => { finishTests = resolve; });
-    const queue = this.store.data.profiles.filter((p) => sourceId === null || p.sourceId === sourceId);
+    const queue = this.store.data.profiles.filter((p) => (sourceId === null || p.sourceId === sourceId) && (profileId === null || p.id === profileId));
     try {
       await this.readEnvironment();
       const worker = async () => {
         while (queue.length && !this.closed) {
           const p = queue.shift();
           p.lastTest = { status: 'checking' }; this.publish();
-          p.lastTest = await testProfile(this.binary, this.runtimeDir, p, this.testInterface(), this.store.data.settings.timeout, this.testAbort.signal);
+          // The server in use is measured through the live tunnel: a fresh connection to it may be refused by the
+          // network for a while (DPI cuts new handshakes to VPN servers) while the open one works fine.
+          p.lastTest = this.connection.phase === 'connected' && p.id === this.connection.profileId && this.engine
+            ? await this.engine.probe(this.store.data.settings.timeout).then((latency) => ({ status: 'ok', latency, checkedAt: new Date().toISOString() }), (e) => ({ status: 'error', message: e.message, checkedAt: new Date().toISOString() }))
+            : await testProfile(this.binary, this.runtimeDir, p, this.testInterface(), this.store.data.settings.timeout, this.testAbort.signal);
           if (p.lastTest.message) p.lastTest.message = redact(p.lastTest.message);
           this.log(p.lastTest.status === 'ok' ? 'info' : 'warning', `${p.name}: ${p.lastTest.status === 'ok' ? `HTTPS доступен, ${p.lastTest.latency} мс` : p.lastTest.message}`);
         }
@@ -272,16 +316,17 @@ export class Controller extends EventEmitter {
         } catch (e) {
           lastError = e;
           await this.proxy.restore().catch(() => {}); await engine.stop(); await this.leakGuard?.disarm();
-          if (e.code === 'WFP_BLOCKED') {
-            // The filters are Windows-wide, not the server's fault: another server would fail the same way. Another
-            // VPN may have raised its TUN between our check and the start, so the network is read again.
+          // Another VPN may have raised its TUN between our check and the start: it takes the routes, and our TUN
+          // check times out or the filters fail. Neither is the server's fault, so the network is read again.
+          if (mode === 'tun' || e.code === 'WFP_BLOCKED') {
             await this.readEnvironment().catch(() => {});
             if (this.env.tunActive) {
               const names = this.env.foreignTunnels?.map((t) => t.name).join(', ');
               throw Object.assign(new Error(`Обнаружены маршруты TUN другого VPN${names ? ` (${names})` : ''}. Отключите его и повторите подключение.`), { code: 'VPN_CONFLICT' });
             }
-            throw e;
           }
+          // The filters are Windows-wide: another server would fail the same way.
+          if (e.code === 'WFP_BLOCKED') throw e;
           p.lastTest = { status: 'error', message: redact(e.message), checkedAt: new Date().toISOString() };
           this.log('warning', `${p.name}: ${e.message}`);
         }

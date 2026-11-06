@@ -14,6 +14,9 @@ for (let i = 0; i < dots.length; i += 3) {
 
 const MIN_Z = 1, MAX_Z = 8, BLEED = 1.14; // at z = 1 the world is 14% wider than the view, so its edges leave the frame
 const ANCHOR_Y = 0.42; // the camera centre sits a little above the middle: the status and the button live below
+// Room left between the map's edge and the window's when the map is pulled all the way: more at the top and the
+// bottom, where the top bar and the traffic line sit over the map.
+const PAD = { x: 32, top: 72, bottom: 64 };
 const home = (): Camera => ({ x: cols / 2, y: rows / 2, z: 1 });
 
 // Framing for a connection: the dots near the country's centre, so overseas territories do not stretch the zoom.
@@ -46,11 +49,11 @@ export function WorldMap({ iso, tone, focus, servers = [] }: { iso: string | nul
   props.current = { iso, tone, servers: new Set(servers) };
 
   const scale = (w: number) => (w * BLEED / cols) * cam.current.z;
-  // The camera may go as far as the map still fills the view, as content does on iOS; where the map is smaller than the
-  // view, it stays centred on that axis and can only be pulled against the resistance.
+  // The camera may go as far as the map's edge sits PAD inside the view, as content with insets does on iOS; where the
+  // map is smaller than that, it stays centred on that axis and can only be pulled against the resistance.
   const limits = (z: number) => {
     const el = canvas.current!, w = el.clientWidth || 1, h = el.clientHeight || 1, k = (w * BLEED / cols) * z, ay = h * ANCHOR_Y;
-    let x0 = w / 2 / k, x1 = cols - w / 2 / k, y0 = ay / k, y1 = rows - (h - ay) / k;
+    let x0 = (w / 2 - PAD.x) / k, x1 = cols - (w / 2 - PAD.x) / k, y0 = (ay - PAD.top) / k, y1 = rows - (h - ay - PAD.bottom) / k;
     if (x0 > x1) x0 = x1 = cols / 2;
     if (y0 > y1) y0 = y1 = rows / 2;
     return { x0, x1, y0, y1, vw: w / k, vh: h / k };

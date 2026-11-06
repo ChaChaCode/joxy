@@ -84,3 +84,37 @@ test('a TUN config leaves leak filters to joxy-guard: Xray commits its own in on
   const tun = (on) => buildConfig(p, { http: 1, socks: 2 }, '', { mode: 'tun', tunDnsProtection: on, tunIpv6: 'block', tunMtu: 1400 }).inbounds.find((i) => i.protocol === 'tun').settings;
   for (const on of [true, false]) assert.equal('autoSystemWfpBlockLeak' in tun(on), false);
 });
+
+test('a shared link reads back to the same server, for every transport', async () => {
+  const { shareLink } = await import('../electron/profiles.mjs');
+  const uuid = '1b4e28ba-2fa1-41d2-883f-0016d3cca427', pbk = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG';
+  const links = [
+    `vless://${uuid}@192.0.2.20:443?type=tcp&security=reality&sni=example.com&pbk=${pbk}&sid=ab12&fp=chrome&flow=xtls-rprx-vision#Amsterdam%20Vision`,
+    `vless://${uuid}@example.com:8443?type=xhttp&security=reality&pbk=${pbk}&path=%2Fx&mode=packet-up&host=cdn.example.com#%D0%A4%D1%80%D0%B0%D0%BD%D0%BA%D1%84%D1%83%D1%80%D1%82`,
+    `vless://${uuid}@[2001:db8::1]:443?type=grpc&security=tls&sni=example.com&alpn=h2&serviceName=svc&mode=multi#gRPC`,
+    `vless://${uuid}@192.0.2.21:443?type=ws&security=tls&sni=example.com&path=%2Fws&host=example.com#WS`,
+    `vless://${uuid}@192.0.2.22:443?type=httpupgrade&security=tls&sni=example.com&path=%2Fup&host=example.com#HTTPUpgrade`,
+  ];
+  for (const link of links) {
+    const [p] = parseSubscription(link).profiles;
+    assert.ok(p, link);
+    const shared = shareLink(p);
+    assert.match(shared, /^vless:\/\//);
+    const [back] = parseSubscription(shared).profiles;
+    assert.equal(back.id, p.id, shared); assert.equal(back.name, p.name);
+  }
+});
+
+test('XHTTP keeps XMUX from a link or a config, shares it, and rejects what it cannot check', async () => {
+  const { shareLink, sanitizeXmux } = await import('../electron/profiles.mjs');
+  const xmux = { maxConnections: 3, cMaxReuseTimes: 0, hMaxRequestTimes: '600-900', hMaxReusableSecs: '1800-3000' };
+  const link = `vless://1b4e28ba-2fa1-41d2-883f-0016d3cca427@192.0.2.20:443?type=xhttp&security=reality&sni=example.com&pbk=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG&fp=firefox&mode=stream-one&extra=${encodeURIComponent(JSON.stringify({ xmux, noSSEHeader: true }))}#x`;
+  const [p] = parseSubscription(link).profiles;
+  assert.deepEqual(p.outbound.streamSettings.xhttpSettings.extra, { xmux }, 'Only XMUX is kept from extra');
+  assert.equal(p.outbound.streamSettings.realitySettings.fingerprint, 'firefox');
+  assert.equal(parseSubscription(shareLink(p)).profiles[0].id, p.id, 'Sharing keeps XMUX');
+  const config = { protocol: 'vless', settings: { vnext: [{ address: '192.0.2.20', port: 443, users: [{ id: '1b4e28ba-2fa1-41d2-883f-0016d3cca427' }] }] }, streamSettings: { network: 'xhttp', security: 'reality', realitySettings: { password: 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG' }, xhttpSettings: { xmux: { maxConcurrency: '16-32' } } } };
+  assert.deepEqual(parseSubscription(JSON.stringify(config)).profiles[0].outbound.streamSettings.xhttpSettings.extra, { xmux: { maxConcurrency: '16-32' } });
+  for (const bad of [{ evil: 1 }, { maxConnections: -1 }, { maxConnections: '9-2' }, { maxConnections: 'x' }, { maxConnections: 2, maxConcurrency: 4 }]) assert.throws(() => sanitizeXmux(bad), /XMUX/, JSON.stringify(bad));
+  assert.throws(() => parseSubscription(link.replace(/extra=[^#]+/, 'extra=%7Bbroken')), /XHTTP extra/);
+});

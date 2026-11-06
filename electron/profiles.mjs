@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { isIP } from 'node:net';
 import { countryCode, namedCountry } from './country.mjs';
-import { normalizeSettings, parseDirectRules } from './settings.mjs';
+import { normalizeSettings, parseDirectRules, russianDomains } from './settings.mjs';
 
 const transports = new Set(['raw', 'xhttp', 'grpc', 'ws', 'httpupgrade']);
 const obj = (v) => v && typeof v === 'object' && !Array.isArray(v);
@@ -32,6 +32,23 @@ export function sanitizeFragment(value) {
   const delay = s.delay ?? s.interval ?? '0';
   if (!range(s.length, 1, 1460) || !range(delay, 0, 30)) return fail('Неверные параметры фрагментации TLS.');
   return { tcp: [{ type: 'fragment', settings: { packets: 'tlshello', length: s.length, delay } }] };
+}
+
+// XMUX: how XHTTP spreads proxied connections over real ones. Kept from a link's or a config's extra, since a provider
+// sets it to the network's limits; other extra fields still fall away, as before. Values are counts or "min-max".
+const xmuxKeys = ['maxConcurrency', 'maxConnections', 'cMaxReuseTimes', 'hMaxRequestTimes', 'hMaxReusableSecs', 'hKeepAlivePeriod'];
+export function sanitizeXmux(value) {
+  if (value == null) return undefined;
+  if (!obj(value)) return fail('Некорректная настройка XMUX.');
+  const out = {};
+  for (const [key, v] of Object.entries(value)) {
+    if (!xmuxKeys.includes(key)) return fail(`Неизвестный параметр XMUX: ${String(key).slice(0, 40)}.`);
+    const ok = Number.isInteger(v) ? v >= 0 && v <= 1_000_000 : typeof v === 'string' && /^\d{1,7}(-\d{1,7})?$/.test(v) && (() => { const [a, b = a] = v.split('-').map(Number); return b >= a; })();
+    if (!ok) return fail(`Неверное значение XMUX ${key}.`);
+    out[key] = v;
+  }
+  if (out.maxConcurrency != null && out.maxConnections != null && out.maxConcurrency !== 0 && out.maxConnections !== 0) return fail('XMUX: maxConcurrency и maxConnections нельзя задавать вместе.');
+  return Object.keys(out).length ? out : undefined;
 }
 
 export function normalizeOutbound(raw, name = '') {
@@ -82,6 +99,8 @@ export function normalizeOutbound(raw, name = '') {
     if (x.path && (!text(x.path, 1024) || !x.path.startsWith('/'))) return fail('Некорректный путь XHTTP.');
     stream.xhttpSettings = { path: x.path || '/', mode: x.mode || 'auto' };
     if (x.host && text(x.host, 253)) stream.xhttpSettings.host = x.host;
+    const xmux = sanitizeXmux(x.extra?.xmux ?? x.xmux);
+    if (xmux) stream.xhttpSettings.extra = { xmux };
   }
   if (network === 'grpc') {
     const g = input.grpcSettings ?? {};
@@ -117,8 +136,13 @@ export function parseVless(link) {
   };
   const s = input.streamSettings;
   if (s.security === 'reality') s.realitySettings = { serverName: q.get('sni') || '', password: q.get('pbk') || '', shortId: q.get('sid') || '', fingerprint: q.get('fp') || 'chrome', ...(q.get('pqv') ? { mldsa65Verify: q.get('pqv') } : {}), ...(q.get('spx') ? { spiderX: q.get('spx') } : {}) };
-  if (s.security === 'tls') s.tlsSettings = { serverName: q.get('sni') || u.hostname, allowInsecure: q.get('allowInsecure') === '1' };
-  if (s.network === 'xhttp') s.xhttpSettings = { path: q.get('path') || '/', mode: q.get('mode') || 'auto', host: q.get('host') || '' };
+  if (s.security === 'tls') s.tlsSettings = { serverName: q.get('sni') || u.hostname, allowInsecure: q.get('allowInsecure') === '1', ...(q.get('alpn') ? { alpn: q.get('alpn').split(',') } : {}) };
+  if (s.network === 'xhttp') {
+    s.xhttpSettings = { path: q.get('path') || '/', mode: q.get('mode') || 'auto', host: q.get('host') || '' };
+    if (q.has('extra')) {
+      try { s.xhttpSettings.extra = JSON.parse(q.get('extra')); } catch { return fail('Повреждена настройка XHTTP extra.'); }
+    }
+  }
   if (s.network === 'grpc') s.grpcSettings = { serviceName: q.get('serviceName') || '', multiMode: q.get('mode') === 'multi', authority: q.get('authority') || '' };
   if (s.network === 'ws') s.wsSettings = { path: q.get('path') || '/', headers: { Host: q.get('host') || '' } };
   if (s.network === 'httpupgrade') s.httpupgradeSettings = { path: q.get('path') || '/', host: q.get('host') || '' };
@@ -155,6 +179,28 @@ export function parseSubscription(input) {
   if (!profiles.length) return fail(rejected[0] || 'Поддерживаемых профилей не найдено.');
   if (profiles.length > 100) return fail('В одной подписке поддерживается до 100 профилей.');
   return { profiles, rejected };
+}
+
+// The profile as a standard vless:// link, for other clients: parseVless reads it back to the same profile.
+export function shareLink(profile) {
+  const { settings: { vnext: [{ address, port, users: [user] }] }, streamSettings: s } = profile.outbound;
+  const q = new URLSearchParams({ encryption: user.encryption || 'none' });
+  if (user.flow) q.set('flow', user.flow);
+  q.set('type', s.network === 'raw' ? 'tcp' : s.network);
+  q.set('security', s.security);
+  const set = (key, value) => { if (value) q.set(key, value); };
+  if (s.realitySettings) {
+    const r = s.realitySettings;
+    set('sni', r.serverName); q.set('pbk', r.password); set('sid', r.shortId); set('fp', r.fingerprint); set('pqv', r.mldsa65Verify); set('spx', r.spiderX);
+  }
+  if (s.tlsSettings) { set('sni', s.tlsSettings.serverName); set('fp', s.tlsSettings.fingerprint); set('alpn', s.tlsSettings.alpn?.join(',')); }
+  if (s.xhttpSettings) { set('path', s.xhttpSettings.path); set('mode', s.xhttpSettings.mode); set('host', s.xhttpSettings.host); if (s.xhttpSettings.extra) q.set('extra', JSON.stringify(s.xhttpSettings.extra)); }
+  if (s.grpcSettings) { set('serviceName', s.grpcSettings.serviceName); if (s.grpcSettings.multiMode) q.set('mode', 'multi'); set('authority', s.grpcSettings.authority); }
+  if (s.wsSettings) { set('path', s.wsSettings.path); set('host', s.wsSettings.headers?.Host); }
+  if (s.httpupgradeSettings) { set('path', s.httpupgradeSettings.path); set('host', s.httpupgradeSettings.host); }
+  if (s.finalmask) q.set('fm', JSON.stringify(s.finalmask));
+  const host = isIP(address) === 6 ? `[${address}]` : address;
+  return `vless://${encodeURIComponent(user.id)}@${host}:${port}?${q.toString().replace(/\+/g, '%20')}#${encodeURIComponent(profile.name)}`;
 }
 
 export function publicProfile(profile) {
@@ -196,6 +242,7 @@ export function buildConfig(profile, ports, networkInterface = '', options = {})
     rules.push({ type: 'field', inboundTag: ['tun-in'], port: '53', outboundTag: 'dns-out' });
   }
   if (settings.bypassLan) rules.push({ type: 'field', ip: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '224.0.0.0/4', '::1/128', 'fc00::/7', 'fe80::/10', 'ff00::/8'], outboundTag: 'direct' });
+  if (settings.bypassRu) rules.push({ type: 'field', domain: russianDomains, outboundTag: 'direct' });
   if (direct.domains.length) rules.push({ type: 'field', domain: direct.domains, outboundTag: 'direct' });
   if (direct.ips.length) rules.push({ type: 'field', ip: direct.ips, outboundTag: 'direct' });
   if (rules.some((rule) => rule.outboundTag === 'direct')) config.outbounds.push({ tag: 'direct', protocol: 'freedom', settings: {}, ...(networkInterface ? { streamSettings: { sockopt: { interface: networkInterface } } } : {}) });

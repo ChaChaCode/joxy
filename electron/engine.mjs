@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
 import { createServer, createConnection } from 'node:net';
-import { request as httpsRequest } from 'node:https';
+import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -55,9 +55,11 @@ function waitFor(condition, child, timeout, message) {
   });
 }
 
-export function proxyRequest(port, url, timeout = 8000, signal) {
+// shared: a keep-alive agent the caller owns and closes, for several requests over one connection.
+export function proxyRequest(port, url, timeout = 8000, signal, shared) {
   return new Promise((resolve, reject) => {
-    const agent = new HttpsProxyAgent(`http://127.0.0.1:${port}`, { timeout });
+    const agent = shared || new HttpsProxyAgent(`http://127.0.0.1:${port}`, { timeout });
+    const done = () => { if (!shared) agent.destroy(); };
     const start = performance.now();
     const req = httpsRequest(url, { agent, timeout, signal, headers: { 'User-Agent': `JOXY/${version}` } }, (res) => {
       let body = '', size = 0;
@@ -66,20 +68,20 @@ export function proxyRequest(port, url, timeout = 8000, signal) {
         if (size > 64 * 1024) req.destroy(new Error('Слишком большой ответ проверки.'));
         else body += chunk.toString();
       });
-      res.on('end', () => { clearTimeout(timer); agent.destroy(); resolve({ status: res.statusCode, body, latency: Math.round(performance.now() - start) }); });
+      res.on('end', () => { clearTimeout(timer); done(); resolve({ status: res.statusCode, body, latency: Math.round(performance.now() - start) }); });
       res.on('error', (err) => req.destroy(err));
     });
     const timer = setTimeout(() => req.destroy(new Error(`Тайм-аут HTTPS-проверки. Соединение не завершилось за ${Math.round(timeout / 1000)} с.`)), timeout);
     req.once('timeout', () => req.destroy(new Error('Тайм-аут соединения.')));
-    req.once('error', (err) => { clearTimeout(timer); agent.destroy(); reject(err); });
+    req.once('error', (err) => { clearTimeout(timer); done(); reject(err); });
     req.end();
   });
 }
 
-export function nativeRequest(url, timeout = 8000, signal) {
+export function nativeRequest(url, timeout = 8000, signal, agent = false) {
   return new Promise((resolve, reject) => {
     const start = performance.now();
-    const req = httpsRequest(url, { timeout, signal, family: 4, agent: false }, (res) => {
+    const req = httpsRequest(url, { timeout, signal, family: 4, agent }, (res) => {
       let body = '', size = 0;
       res.on('data', (chunk) => { size += chunk.length; if (size > 65536) req.destroy(new Error('Слишком большой ответ проверки.')); else body += chunk.toString(); });
       res.on('end', () => { clearTimeout(timer); resolve({ status: res.statusCode, body, latency: Math.round(performance.now() - start) }); });
@@ -129,11 +131,20 @@ export class XrayEngine extends EventEmitter {
     }
     return this.ports;
   }
+  // The first request proves that an HTTPS site opens through the server, handshakes and all. The latency shown is
+  // the second one, over the connection the first left open: one round trip through the tunnel, as other clients
+  // measure it. A second request that fails does not fail a server the first one reached.
   async probe(timeout = 8000) {
     if (!this.child || !this.ports) throw new Error('Ядро не запущено.');
-    const r = this.tun ? await nativeRequest('https://www.gstatic.com/generate_204', timeout, this.abort.signal) : await proxyRequest(this.ports.http, 'https://www.gstatic.com/generate_204', timeout, this.abort.signal);
-    if (r.status !== 204) throw new Error(`HTTPS-проверка вернула HTTP ${r.status}, ожидался 204.`);
-    return r.latency;
+    const url = 'https://www.gstatic.com/generate_204';
+    const agent = this.tun ? new HttpsAgent({ keepAlive: true, maxSockets: 1 }) : new HttpsProxyAgent(`http://127.0.0.1:${this.ports.http}`, { keepAlive: true, maxSockets: 1, timeout });
+    const get = () => this.tun ? nativeRequest(url, timeout, this.abort.signal, agent) : proxyRequest(this.ports.http, url, timeout, this.abort.signal, agent);
+    try {
+      const first = await get();
+      if (first.status !== 204) throw new Error(`HTTPS-проверка вернула HTTP ${first.status}, ожидался 204.`);
+      const second = await get().catch(() => null);
+      return second?.status === 204 ? second.latency : first.latency;
+    } finally { agent.destroy(); }
   }
   async exitIP() {
     if (!this.ports) return null;

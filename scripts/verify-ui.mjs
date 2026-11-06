@@ -26,6 +26,10 @@ try {
     window.joxy = {
       state: async () => structuredClone(state), onState: (s) => { subscribers.push(s); return () => {}; },
       select: async (id) => { state.selectedId = id; emit(); },
+      share: async (id) => { window.__shared = id; },
+      testProfile: async (id) => { const p = state.profiles.find((x) => x.id === id); p.lastTest = { status: 'ok', latency: 77 }; emit(); },
+      removeProfile: async (id) => { state.profiles = state.profiles.filter((p) => p.id !== id); state.sources[0].count = state.profiles.length; emit(); },
+      removeSource: async () => {},
       connect: async () => { if (state.environment.tunActive) { const error = 'Обнаружены маршруты TUN другого VPN (throne-tun).'; state.connection = { ...state.connection, phase: 'error', error, errorCode: 'vpn-conflict' }; emit(); throw new Error(error); } state.connection = { phase: 'connected', profileId: state.selectedId === 'auto' ? '1' : state.selectedId, since: new Date().toISOString(), exitIP: '192.0.2.10', latency: 124, systemProxy: true }; emit(); },
       disconnect: async () => { state.connection = { phase: 'idle', profileId: null, since: null, exitIP: null, latency: null, systemProxy: false }; emit(); },
       test: async () => { state.profiles.forEach((p, i) => p.lastTest = { status: 'ok', latency: 120 + i * 10 }); emit(); },
@@ -123,7 +127,7 @@ try {
   // Settings: subscriptions and their metadata variants.
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByRole('heading', { name: 'Настройки' }).waitFor();
-  await page.getByRole('button', { name: 'Подписки', exact: true }).click();
+  await page.getByRole('button', { name: 'Серверы', exact: true }).click();
   await page.locator('.subscription-info').waitFor();
   assert.match(await page.locator('.subscription-info').innerText(), /Осталось 26 дней/);
   assert.equal(await page.getByRole('progressbar').getAttribute('value'), String(5 * 1073741824));
@@ -133,6 +137,30 @@ try {
   assert.equal(await page.locator('.sub-server:visible').count(), 0);
   await page.getByRole('button', { name: /Test subscription.*3 сервера/ }).click();
   assert.equal(await page.locator('.sub-server:visible').count(), 3);
+  // A server's right-click menu shares it; the link itself never reaches the window.
+  await page.locator('.sub-server').first().click({ button: 'right' });
+  await page.getByRole('menu').waitFor();
+  await page.getByRole('menuitem', { name: 'Поделиться' }).click();
+  await page.getByRole('menu').waitFor({ state: 'hidden' });
+  await page.getByText('Ссылка на сервер скопирована').waitFor();
+  assert.equal(await page.evaluate(() => window.__shared), (await saved()).profiles[0].id);
+  await page.locator('.sub-server').first().click({ button: 'right' });
+  await page.keyboard.press('Escape');
+  await page.getByRole('menu').waitFor({ state: 'hidden' });
+  // A single server's latency check from its menu.
+  await page.locator('.sub-server').first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Проверить задержку' }).click();
+  await page.locator('.sub-server').first().getByText('77 мс').waitFor();
+  // Deleting asks once more in place: the first press only arms the item.
+  const before = (await saved()).profiles.length;
+  await page.locator('.sub-server').last().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Удалить сервер' }).click();
+  await page.getByRole('menuitem', { name: 'Нажмите ещё раз, чтобы удалить' }).click();
+  await page.getByText('Сервер удалён').waitFor();
+  assert.equal((await saved()).profiles.length, before - 1);
+  await page.locator('.subscription-header').first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Удалить подписку' }).waitFor();
+  await page.keyboard.press('Escape');
   await page.evaluate(() => window.__joxyFixture.usage({ upload: 0, download: 1024, total: 0, expire: 0 }));
   await page.getByText('Без срока действия', { exact: true }).waitFor();
   assert.match(await page.locator('.subscription-traffic').innerText(), /∞/);
@@ -167,7 +195,7 @@ try {
   // Privacy: addresses appear only on request and hide again on blur.
   await page.getByRole('button', { name: 'Приватность', exact: true }).click();
   await page.getByRole('switch', { name: 'Показывать адреса' }).click();
-  await page.getByRole('button', { name: 'Подписки', exact: true }).click();
+  await page.getByRole('button', { name: 'Серверы', exact: true }).click();
   assert.ok((await text()).includes('192.0.2.10:443'));
   await page.evaluate(() => window.dispatchEvent(new Event('blur')));
   await page.waitForFunction(() => !document.body.innerText.includes('192.0.2.10'));

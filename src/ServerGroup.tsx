@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
 import { Activity, ChevronDown, ExternalLink, LifeBuoy, RefreshCw } from './icons';
 import type { Source } from './types';
 
@@ -29,14 +29,14 @@ function SubscriptionInfo({ source, now }: { source: Source; now: number }) {
     </div>
   </div>;
 }
-export function ServerGroup({ source, count, current, now, busy, checking, refresh, test, open, children }: {
+export function ServerGroup({ source, count, current, now, busy, checking, refresh, test, open, onMenu, children }: {
   source: Source; count: number; current: boolean; now: number; busy: boolean; checking: boolean;
-  refresh: () => void; test: () => void; open: (kind: 'supportUrl' | 'websiteUrl') => void; children: ReactNode;
+  refresh: () => void; test: () => void; open: (kind: 'supportUrl' | 'websiteUrl') => void; onMenu?: (e: MouseEvent) => void; children: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const contentId = `source-${source.id}`;
   return <section className={`subscription-card panel ${current ? 'current-subscription' : ''}`} aria-label={`Подписка ${source.label}`}>
-    <div className="subscription-header">
+    <div className="subscription-header" onContextMenu={onMenu}>
       <button className="subscription-disclosure" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} aria-controls={contentId}>
         <ChevronDown size={17} className={collapsed ? 'collapsed' : ''} /><span><strong>{source.label}</strong><small>{count} {count % 10 === 1 && count % 100 !== 11 ? 'сервер' : [2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100) ? 'сервера' : 'серверов'}{current && <span className="provider-current">Подключено</span>}</small></span>
       </button>

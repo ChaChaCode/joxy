@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeImage, Tray, Menu, safeStorage, nativeTheme, shell, powerMonitor } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, Tray, Menu, safeStorage, nativeTheme, shell, powerMonitor, clipboard } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
@@ -148,9 +148,13 @@ function registerIPC() {
       await shell.openExternal(url);
     },
     select: (id) => controller.select(id),
+    share: (id) => { clipboard.writeText(controller.shareLink(id)); },
+    'remove-profile': (id) => controller.removeProfile(id),
+    'remove-source': (id) => controller.removeSource(id),
     connect: () => controller.connect(),
     disconnect: () => controller.disconnect(),
     test: (id = null) => controller.checkAll(id),
+    'test-profile': (id) => controller.checkAll(null, id),
     settings: (patch) => controller.updateSettings(patch),
     // connect: the restarted instance connects at once, so pressing connect in TUN needs only the Windows prompt.
     elevate: async (patch = {}, options = {}) => {

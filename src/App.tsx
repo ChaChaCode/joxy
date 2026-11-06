@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Check, ChevronDown, CircleAlert, FileInput, LoaderCircle, Plus, Power, RefreshCw, ShieldCheck, X } from './icons';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { ContextMenu } from './ContextMenu';
+import { ArrowDown, ArrowUp, Check, ChevronDown, CircleAlert, FileInput, LoaderCircle, Plus, Power, RefreshCw, Share, ShieldCheck, Trash, X } from './icons';
 import type { Profile, State } from './types';
 import { AutoTile, CountryFlag, countryName } from './CountryFlag';
 import { maskAddresses } from './privacy';
@@ -26,6 +27,8 @@ export default function App() {
   const [adminPrompt, setAdminPrompt] = useState(false);
   const [hiddenConflict, setHiddenConflict] = useState('');
   const [hiddenUpdate, setHiddenUpdate] = useState('');
+  const [menu, setMenu] = useState<{ x: number; y: number; id: string; kind: 'profile' | 'source' } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [addressesVisible, setAddressesVisible] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -66,7 +69,8 @@ export default function App() {
   }, [addressesVisible]);
   useEffect(() => {
     if (!pickerOpen) return;
-    const close = (e: PointerEvent) => { if (!pickerRef.current?.contains(e.target as Node)) setPickerOpen(false); };
+    // A server's right-click menu floats over the list: pressing in it keeps the list open.
+    const close = (e: PointerEvent) => { const t = e.target as Element; if (!pickerRef.current?.contains(t) && !t.closest?.('.context-menu')) setPickerOpen(false); };
     // Escape closes the menu wherever focus is, and hands focus back to the button that opened it.
     const escape = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') { setPickerOpen(false); pickerRef.current?.querySelector<HTMLElement>('.picker-button')?.focus(); } };
     document.addEventListener('pointerdown', close);
@@ -122,22 +126,35 @@ export default function App() {
     try { await bridge.elevate({}, { connect: true }); } catch { setAdminPrompt(true); } finally { setBusy(''); }
   };
   const choose = (id: string) => { setPickerOpen(false); run('select', () => bridge!.select(id)); };
+  const serverMenu = (e: MouseEvent, id: string, kind: 'profile' | 'source' = 'profile') => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id, kind }); };
+  const menuServer = menu?.kind === 'profile' ? state.profiles.find((p) => p.id === menu.id) : undefined;
+  const menuSource = menu?.kind === 'source' ? state.sources.find((s) => s.id === menu.id) : undefined;
+  const inUse = (ids: string[]) => (connected || connecting) && ids.includes(state.connection.profileId || '');
   const title = !state.profiles.length ? 'Нет серверов' : connected ? 'Подключено' : connecting ? 'Подключение…' : failed ? 'Не удалось подключиться' : shown || state.selectedId === 'auto' ? 'Готово к подключению' : 'Не подключено';
   const place = (p: Profile) => countryName(p.countryCode) ? `${countryName(p.countryCode)} · ${privateText(p.name)}` : privateText(p.name);
   const locationLabel = shown ? place(shown) : state.profiles.length ? 'Автовыбор' : 'Выберите локацию';
   const latency = (p: Profile) => p.lastTest?.status === 'ok' ? `${p.lastTest.latency} мс` : p.lastTest?.status === 'checking' ? 'проверка…' : p.lastTest?.status === 'error' ? 'недоступен' : '';
 
   return <div className="app">
+    {menuServer && <ContextMenu at={menu!} title={privateText(menuServer.name)} close={closeMenu} items={[
+      { label: 'Проверить задержку', icon: <RefreshCw size={15} />, disabled: !bridge || state.checking || !!busy, action: () => run('test', () => bridge!.testProfile(menuServer.id)) },
+      { label: 'Поделиться', icon: <Share size={15} />, disabled: !bridge, action: () => run('share', () => bridge!.share(menuServer.id), 'Ссылка на сервер скопирована') },
+      { label: inUse([menuServer.id]) ? 'Удалить (сначала отключитесь)' : 'Удалить сервер', icon: <Trash size={15} />, disabled: !bridge || !!busy || inUse([menuServer.id]), confirm: 'Нажмите ещё раз, чтобы удалить', action: () => run('remove', () => bridge!.removeProfile(menuServer.id), 'Сервер удалён') },
+    ]} />}
+    {menuSource && <ContextMenu at={menu!} title={privateText(menuSource.label)} close={closeMenu} items={[
+      { label: inUse(state.profiles.filter((p) => p.sourceId === menuSource.id).map((p) => p.id)) ? 'Удалить (сначала отключитесь)' : 'Удалить подписку', icon: <Trash size={15} />,
+        disabled: !bridge || !!busy || inUse(state.profiles.filter((p) => p.sourceId === menuSource.id).map((p) => p.id)), confirm: 'Удалить вместе с серверами?', action: () => run('remove', () => bridge!.removeSource(menuSource.id), 'Подписка удалена') },
+    ]} />}
     <header className="topbar">
       {view === 'home' ? <div className="picker" ref={pickerRef}>
-        <button className="picker-button" aria-haspopup="listbox" aria-expanded={pickerOpen} onClick={() => state.profiles.length ? setPickerOpen(!pickerOpen) : openImport()}>
+        <button className="picker-button" aria-haspopup="listbox" aria-expanded={pickerOpen} onContextMenu={(e) => shown ? serverMenu(e, shown.id) : e.preventDefault()} onClick={() => state.profiles.length ? setPickerOpen(!pickerOpen) : openImport()}>
           {shown ? <CountryFlag code={shown.countryCode} /> : state.profiles.length > 0 && <AutoTile />}<span>{locationLabel}</span><ChevronDown size={14} className={pickerOpen ? 'flipped' : ''} />
         </button>
         {pickerOpen && <div className="picker-menu">
           {/* The list scrolls; the actions stay pinned to the bottom of the menu however many servers there are. */}
           <div className="picker-list" role="listbox" aria-label="Локация">
           <button role="option" aria-selected={state.selectedId === 'auto'} className="picker-option" onClick={() => choose('auto')}><AutoTile /><span className="picker-text"><strong>Автовыбор</strong><small>Лучший доступный сервер</small></span>{state.selectedId === 'auto' && <Check size={15} />}</button>
-          {state.profiles.map((p) => <button key={p.id} role="option" aria-selected={state.selectedId === p.id} aria-label={`Выбрать ${privateText(p.name)}`} className="picker-option" onClick={() => choose(p.id)}>
+          {state.profiles.map((p) => <button key={p.id} role="option" aria-selected={state.selectedId === p.id} aria-label={`Выбрать ${privateText(p.name)}`} className="picker-option" onClick={() => choose(p.id)} onContextMenu={(e) => serverMenu(e, p.id)}>
             <CountryFlag code={p.countryCode} />
             <span className="picker-text"><strong>{place(p)}</strong><small>VLESS · {security(p)} · {transport(p)}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span>
             <span className={`picker-latency ${p.lastTest?.status || ''}`}>{latency(p)}</span>{state.selectedId === p.id && <Check size={15} />}
@@ -201,7 +218,7 @@ export default function App() {
         <span><ArrowDown size={14} />{bytes(connected ? state.stats.down : 0)}</span>
         <span><ArrowUp size={14} />{bytes(connected ? state.stats.up : 0)}</span>
       </footer>
-    </> : <SettingsView state={state} bridge={bridge} busy={busy} run={run} back={() => setView('home')} privateText={privateText} addressesVisible={addressesVisible} setAddressesVisible={setAddressesVisible} openImport={openImport} now={now} />}
+    </> : <SettingsView state={state} bridge={bridge} busy={busy} run={run} back={() => setView('home')} privateText={privateText} addressesVisible={addressesVisible} setAddressesVisible={setAddressesVisible} openImport={openImport} now={now} serverMenu={serverMenu} />}
 
     {toast && <div role="status" className={`toast ${toast.error ? 'error' : ''}`}>{toast.error ? <CircleAlert size={17} /> : <Check size={17} />}<span>{privateText(toast.message)}</span><button aria-label="Закрыть уведомление" onClick={() => setToast(null)}><X size={14} /></button></div>}
     {importOpen && <div className="modal-backdrop" onPointerDown={(e) => { backdropPress.current = e.target === e.currentTarget; }} onClick={(e) => { if (backdropPress.current && e.target === e.currentTarget && !busy) setImportOpen(false); backdropPress.current = false; }}><section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onKeyDown={modalKeys} onClick={(e) => e.stopPropagation()}><button className="modal-close icon-button" aria-label="Закрыть импорт" disabled={!!busy} onClick={() => setImportOpen(false)}><X size={18} /></button><h2 id="import-title">Добавить подключение</h2><p>Вставьте ссылку подписки, VLESS или Xray JSON.</p><label className="field-label" htmlFor="import-value">Ссылка или конфигурация</label><textarea ref={importRef} id="import-value" value={importText} onChange={(e) => { setImportText(e.target.value); setImportError(''); }} placeholder="https://example.com/subscription" spellCheck={false} aria-invalid={!!importError} aria-describedby={importError ? 'import-error' : 'import-help'} />{importError ? <p id="import-error" className="field-error" role="alert">{privateText(importError)}</p> : <p id="import-help" className="field-hint">Профили сохраняются на этом устройстве в зашифрованном виде.</p>}<div className="modal-actions"><button className="button secondary" disabled={!!busy} onClick={() => run('file', async () => { const r = await bridge!.importFile(); if (r) { setImportOpen(false); setToast({ message: `Добавлено: ${countProfiles(r.count)}` }); } })}><FileInput size={15} />Из файла</button><button className="button primary" disabled={!importText.trim() || !!busy} onClick={importSubmit}>{busy === 'import' && <LoaderCircle size={15} className="spin" />}{busy === 'import' ? 'Добавляем…' : 'Добавить'}</button></div></section></div>}
