@@ -13,7 +13,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-const out = process.argv[2] || 'docs/screenshots/connecting.webp';
+const out = process.argv[2] || 'docs/screenshots/connecting-session.webp';
 const FPS = Number(process.argv[3] || 60), STEP = 1000 / FPS;
 const dir = await mkdtemp(path.join(tmpdir(), 'joxy-frames-'));
 const vite = await createServer({ server: { host: '127.0.0.1', port: 5182 }, logLevel: 'error' });
