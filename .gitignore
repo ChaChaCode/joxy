@@ -10,3 +10,6 @@ VERIFICATION.md
 *.log
 .env*
 !.env.example
+
+# The MP4 that scripts/readme-video.mjs writes next to the WebP, for uploading by hand if wanted
+docs/screenshots/*.mp4
