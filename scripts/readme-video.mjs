@@ -37,6 +37,7 @@ const fixture = () => {
   };
   const emit = () => subs.forEach((s) => s(structuredClone(state)));
   const idle = { phase: 'idle', profileId: null, since: null, exitIP: null, latency: null, systemProxy: false };
+  let traffic = 0;
   const api = {
     state: async () => structuredClone(state), onState: (s) => { subs.push(s); return () => {}; },
     select: async (id) => { state.selectedId = id; emit(); },
@@ -44,19 +45,26 @@ const fixture = () => {
       state.connection = { ...idle, phase: 'connecting', profileId: state.selectedId }; emit();
       await new Promise((r) => setTimeout(r, 3400));
       state.connection = { phase: 'connected', profileId: state.selectedId, since: new Date().toISOString(), exitIP: '192.0.2.15', latency: 140, systemProxy: false, mode: 'tun' }; emit();
+      // Traffic like a video playing: the counters at the bottom climb while connected.
+      let tick = 0;
+      traffic = setInterval(() => {
+        tick++;
+        const down = 1.6e6 + 1.1e6 * Math.abs(Math.sin(tick * 1.7)), up = 1.4e5 + 9e4 * Math.abs(Math.cos(tick * 1.3));
+        state.stats = { down: state.stats.down + down, up: state.stats.up + up, downRate: down * 2, upRate: up * 2, history: [...state.stats.history, { down: down * 2, up: up * 2 }].slice(-45) };
+        emit();
+      }, 500);
     },
-    disconnect: async () => { state.connection = idle; emit(); },
+    disconnect: async () => { clearInterval(traffic); state.connection = idle; state.stats = { down: 0, up: 0, downRate: 0, upRate: 0, history: [] }; emit(); },
   };
   window.joxy = new Proxy(api, { get: (t, k) => t[k] || (async () => {}) });
   // A cursor drawn into the page, so the recording shows where it clicks.
   addEventListener('DOMContentLoaded', () => {
     const c = document.createElement('div');
-    c.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 2l14 9-6.2 1.3L15 20l-2.6 1.2-3.3-7.6L4 18z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>';
-    c.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;pointer-events:none;transform:translate(640px,420px);filter:drop-shadow(0 1px 2px #0007)';
+    // The standard Windows arrow, pixel for pixel: tip at the top left, the tail down to the right.
+    c.innerHTML = '<svg width="13" height="21" viewBox="0 0 13 21" shape-rendering="crispEdges"><path d="M0.5 0.5V17.5L4.5 13.5L7.5 20.5L9.5 19.5L6.5 12.5H12.5Z" fill="#fff" stroke="#000" stroke-width="1" stroke-linejoin="miter"/></svg>';
+    c.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;pointer-events:none;line-height:0;transform:translate(640px,420px);filter:drop-shadow(1px 1px 1px #0006)';
     document.body.appendChild(c);
-    addEventListener('mousemove', (e) => { c.style.transform = `translate(${e.clientX - 3}px, ${e.clientY - 2}px)`; }, true);
-    addEventListener('mousedown', () => { c.firstChild.style.transform = 'scale(.85)'; }, true);
-    addEventListener('mouseup', () => { c.firstChild.style.transform = ''; }, true);
+    addEventListener('mousemove', (e) => { c.style.transform = `translate(${Math.round(e.clientX)}px, ${Math.round(e.clientY)}px)`; }, true);
   });
 };
 
