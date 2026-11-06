@@ -393,3 +393,33 @@ test('the server in use is checked through the live tunnel, not by a fresh conne
   assert.deepEqual([data.profiles.find((p) => p.id === id).lastTest.status, data.profiles.find((p) => p.id === id).lastTest.latency], ['ok', 42]);
   await controller.close();
 });
+
+test('a subscription link is given only for a subscription that has one, and stays out of the window state', async () => {
+  const { controller, data } = fixture();
+  data.profiles = [];
+  controller.subscriptionFetcher = async () => ({ body: 'vless://1b4e28ba-2fa1-41d2-883f-0016d3cca427@192.0.2.20:443?type=tcp&security=reality&sni=example.com&pbk=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG&sid=ab12#A', host: 'example.com', metadata: {} });
+  await controller.importValue('https://example.com/sub/token');
+  const id = data.sources[0].id;
+  assert.equal(controller.sourceLink(id), 'https://example.com/sub/token');
+  assert.ok(!JSON.stringify(controller.snapshot()).includes('/sub/token'));
+  await controller.importValue('vless://1b4e28ba-2fa1-41d2-883f-0016d3cca428@192.0.2.21:443?type=tcp&security=reality&sni=example.com&pbk=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG&sid=ab12#B');
+  assert.throws(() => controller.sourceLink(data.sources.find((s) => !s.url).id), /нет адреса/);
+  assert.throws(() => controller.sourceLink('nope'), /нет адреса/);
+});
+
+test('servers pasted by hand gather in one list, and lists left empty go away', async () => {
+  const link = (n) => `vless://1b4e28ba-2fa1-41d2-883f-0016d3cca42${n}@192.0.2.${20 + n}:443?type=tcp&security=reality&sni=example.com&pbk=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG&sid=ab12#S${n}`;
+  const { controller, data } = fixture();
+  data.profiles = [];
+  await controller.importValue(link(1));
+  await controller.importValue(link(2));
+  await controller.importValue(link(2));
+  assert.equal(data.sources.length, 1, 'One list for every paste');
+  assert.deepEqual(data.profiles.map((p) => p.name).sort(), ['S1', 'S2']);
+  // What earlier versions left behind: a list per paste, one of them empty.
+  data.sources.push({ id: 'empty', label: 'Мои серверы', host: 'Из буфера обмена', url: null }, { id: 'second', label: 'Мои серверы', host: 'Из буфера обмена', url: null });
+  data.profiles[0].sourceId = 'second';
+  assert.equal(controller.tidySources(), true);
+  assert.equal(data.sources.length, 1);
+  assert.ok(data.profiles.every((p) => p.sourceId === data.sources[0].id));
+});

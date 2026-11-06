@@ -27,6 +27,7 @@ try {
       state: async () => structuredClone(state), onState: (s) => { subscribers.push(s); return () => {}; },
       select: async (id) => { state.selectedId = id; emit(); },
       share: async (id) => { window.__shared = id; },
+      shareSource: async (id) => { window.__sharedSource = id; },
       testProfile: async (id) => { const p = state.profiles.find((x) => x.id === id); p.lastTest = { status: 'ok', latency: 77 }; emit(); },
       removeProfile: async (id) => { state.profiles = state.profiles.filter((p) => p.id !== id); state.sources[0].count = state.profiles.length; emit(); },
       removeSource: async () => {},
@@ -161,6 +162,10 @@ try {
   await page.locator('.subscription-header').first().click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Удалить подписку' }).waitFor();
   await page.keyboard.press('Escape');
+  await page.locator('.subscription-header').first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Скопировать ссылку подписки' }).click();
+  await page.getByText('Ссылка на подписку скопирована').waitFor();
+  assert.equal(await page.evaluate(() => window.__sharedSource), (await saved()).sources[0].id);
   await page.evaluate(() => window.__joxyFixture.usage({ upload: 0, download: 1024, total: 0, expire: 0 }));
   await page.getByText('Без срока действия', { exact: true }).waitFor();
   assert.match(await page.locator('.subscription-traffic').innerText(), /∞/);

@@ -149,6 +149,7 @@ function registerIPC() {
     },
     select: (id) => controller.select(id),
     share: (id) => { clipboard.writeText(controller.shareLink(id)); },
+    'share-source': (id) => { clipboard.writeText(controller.sourceLink(id)); },
     'remove-profile': (id) => controller.removeProfile(id),
     'remove-source': (id) => controller.removeSource(id),
     connect: () => controller.connect(),

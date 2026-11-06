@@ -42,6 +42,7 @@ export class Controller extends EventEmitter {
   }
   async initialize() {
     await this.removeStaleConfigs();
+    if (this.tidySources()) await this.store.save();
     await this.readEnvironment();
     try {
       const m = JSON.parse(await readFile(path.join(this.binaryDir, 'manifest.json'), 'utf8'));
@@ -96,7 +97,9 @@ export class Controller extends EventEmitter {
     if (this.closed) throw new Error('Приложение закрывается.');
     const { profiles, rejected } = parseSubscription(body);
     const d = this.store.data;
-    const old = refreshId ? d.sources.find((s) => s.id === refreshId) : url ? d.sources.find((s) => s.url === url) : null;
+    // Servers pasted by hand all go to the one local list, added to it; a subscription replaces its own servers.
+    const old = refreshId ? d.sources.find((s) => s.id === refreshId) : url ? d.sources.find((s) => s.url === url) : d.sources.find((s) => !s.url);
+    const replacing = !!url;
     const id = old?.id || randomUUID();
     const previous = new Map(d.profiles.map((p) => [p.id, p]));
     // Servers the user deleted from a subscription stay deleted when it refreshes, as long as the provider still lists them.
@@ -106,10 +109,11 @@ export class Controller extends EventEmitter {
     const incoming = kept.map((p) => ({ ...p, countryCode: p.countryCode || metadata.countryCode || null, sourceId: id, lastTest: previous.get(p.id)?.lastTest || null }));
     // A profile may be shared by two subscriptions: do not create duplicate identities.
     const incomingIds = new Set(incoming.map((p) => p.id));
-    const next = [...d.profiles.filter((p) => p.sourceId !== id && !incomingIds.has(p.id)), ...incoming];
+    const next = [...d.profiles.filter((p) => (!replacing || p.sourceId !== id) && !incomingIds.has(p.id)), ...incoming];
     if (next.length > 1000) throw new Error('Достигнут лимит в 1000 профилей.');
-    if (this.connection.phase === 'connected' && d.profiles.some((p) => p.sourceId === id && p.id === this.connection.profileId) && !incomingIds.has(this.connection.profileId)) await this.disconnect();
+    if (replacing && this.connection.phase === 'connected' && d.profiles.some((p) => p.sourceId === id && p.id === this.connection.profileId) && !incomingIds.has(this.connection.profileId)) await this.disconnect();
     d.profiles = next; d.sources = [...d.sources.filter((s) => s.id !== id), source];
+    this.tidySources();
     if (d.selectedId !== 'auto' && !next.some((p) => p.id === d.selectedId)) d.selectedId = 'auto';
     await this.store.save();
     this.log('info', `Импортировано ${profiles.length} профиля. Все подключения используют Xray.`);
@@ -131,6 +135,17 @@ export class Controller extends EventEmitter {
       if (errors.length) throw new Error(errors.join('\n'));
     })();
     try { await this.refreshDone; } finally { this.refreshing = false; }
+  }
+  // One list for hand-added servers, and none left empty: earlier versions made a list per paste, and a server pasted
+  // again into another list left the first one empty.
+  tidySources() {
+    const d = this.store.data, local = d.sources.filter((s) => !s.url), before = d.sources.length;
+    if (local.length > 1) {
+      const [keep, ...rest] = local, merged = new Set(rest.map((s) => s.id));
+      for (const p of d.profiles) if (merged.has(p.sourceId)) p.sourceId = keep.id;
+    }
+    d.sources = d.sources.filter((s) => s.url || d.profiles.some((p) => p.sourceId === s.id));
+    return d.sources.length !== before || local.length > 1;
   }
   // Deleting is refused for the server in use, and while a connection or check runs.
   assertIdle(ids) {
@@ -189,6 +204,12 @@ export class Controller extends EventEmitter {
     const profile = typeof id === 'string' && this.store.data.profiles.find((p) => p.id === id);
     if (!profile) throw new Error('Сервер не найден.');
     return shareLink(profile);
+  }
+  // A subscription's address carries its access token, so like a server link it only ever reaches the clipboard.
+  sourceLink(id) {
+    const source = typeof id === 'string' && this.store.data.sources.find((s) => s.id === id);
+    if (!source?.url) throw new Error('У этой подписки нет адреса: её серверы добавлены вручную.');
+    return source.url;
   }
   wantsKillSwitch() { return !!this.killSwitch && normalizeSettings(this.store.data.settings).mode === 'tun' && this.store.data.settings.killSwitch === true; }
   async armKillSwitch() {

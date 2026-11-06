@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('joxy', Object.freeze({
   openProvider: (id, kind) => invoke('open-provider', id, kind),
   select: (id) => invoke('select', id),
   share: (id) => invoke('share', id),
+  shareSource: (id) => invoke('share-source', id),
   removeProfile: (id) => invoke('remove-profile', id),
   removeSource: (id) => invoke('remove-source', id),
   connect: () => invoke('connect'),

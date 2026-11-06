@@ -142,6 +142,7 @@ export default function App() {
       { label: inUse([menuServer.id]) ? 'Удалить (сначала отключитесь)' : 'Удалить сервер', icon: <Trash size={15} />, disabled: !bridge || !!busy || inUse([menuServer.id]), confirm: 'Нажмите ещё раз, чтобы удалить', action: () => run('remove', () => bridge!.removeProfile(menuServer.id), 'Сервер удалён') },
     ]} />}
     {menuSource && <ContextMenu at={menu!} title={privateText(menuSource.label)} close={closeMenu} items={[
+      ...(menuSource.remote ? [{ label: 'Скопировать ссылку подписки', icon: <Share size={15} />, disabled: !bridge, action: () => run('share', () => bridge!.shareSource(menuSource.id), 'Ссылка на подписку скопирована') }] : []),
       { label: inUse(state.profiles.filter((p) => p.sourceId === menuSource.id).map((p) => p.id)) ? 'Удалить (сначала отключитесь)' : 'Удалить подписку', icon: <Trash size={15} />,
         disabled: !bridge || !!busy || inUse(state.profiles.filter((p) => p.sourceId === menuSource.id).map((p) => p.id)), confirm: 'Удалить вместе с серверами?', action: () => run('remove', () => bridge!.removeSource(menuSource.id), 'Подписка удалена') },
     ]} />}
