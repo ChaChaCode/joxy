@@ -7,8 +7,8 @@
 Простой VPN-клиент для Windows на ядре Xray. Добавьте подписку, выберите локацию на карте и нажмите одну кнопку.
 
 <p align="center">
-  <img src="docs/screenshots/home-light.png" width="49%" alt="JOXY: главный экран">
-  <img src="docs/screenshots/connected-dark.png" width="49%" alt="JOXY: подключено, тёмная тема">
+  <img src="docs/screenshots/map-light.png" width="49%" alt="JOXY: главный экран">
+  <img src="docs/screenshots/map-connected-dark.png" width="49%" alt="JOXY: подключено, тёмная тема">
 </p>
 
 ## Скачать

@@ -52,7 +52,7 @@ async function page(scheme, size = { width: 900, height: 660 }, hash = '') {
 
 try {
   let p = await page('light');
-  await p.screenshot({ path: `${out}/home-light.png` });
+  await p.screenshot({ path: `${out}/map-light.png` });
   await p.evaluate(() => window.__set({ selectedId: '6', connection: { phase: 'connecting', profileId: '6', since: null, exitIP: null, latency: null, systemProxy: false } }));
   await p.waitForTimeout(2200);
   await p.screenshot({ path: `${out}/connecting-light.png` });
@@ -72,7 +72,7 @@ try {
   p = await page('dark');
   await p.evaluate((patch) => window.__set(patch), connected('1'));
   await p.waitForTimeout(2600);
-  await p.screenshot({ path: `${out}/connected-dark.png` });
+  await p.screenshot({ path: `${out}/map-connected-dark.png` });
   await p.close();
 
   for (const scheme of ['light', 'dark']) {
