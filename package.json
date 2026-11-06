@@ -23,6 +23,7 @@
     "verify:ui": "node scripts/verify-ui.mjs",
     "shots": "node scripts/shots.mjs artifacts/design-0.6.3",
     "shots:readme": "node scripts/readme-shots.mjs docs/screenshots",
+    "video:readme": "node scripts/readme-video.mjs docs/screenshots/connecting.gif",
     "verify:live": "node scripts/verify-live.mjs",
     "verify:proxy": "node scripts/verify-proxy.mjs",
     "verify:desktop": "node scripts/verify-desktop.mjs",
