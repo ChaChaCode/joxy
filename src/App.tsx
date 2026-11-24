@@ -6,7 +6,7 @@ import { AutoTile, CountryFlag, countryName } from './CountryFlag';
 import { maskAddresses } from './privacy';
 import { SettingsView } from './SettingsView';
 import { WorldMap } from './WorldMap';
-import { bytes, countProfiles, elapsed, security, settingsDefaults, transport } from './format';
+import { bytes, countProfiles, elapsed, protocol, security, settingsDefaults, transport } from './format';
 
 
 const initial: State = {
@@ -167,7 +167,7 @@ export default function App() {
           <button role="option" aria-selected={state.selectedId === 'auto'} className={`picker-option ${state.selectedId === 'auto' ? 'chosen' : ''}`} onClick={() => choose('auto')}><AutoTile /><span className="picker-text"><strong>Автовыбор</strong><small>Лучший доступный сервер</small></span></button>
           {state.profiles.map((p) => <button key={p.id} role="option" aria-selected={state.selectedId === p.id} aria-label={`Выбрать ${privateText(p.name)}`} className={`picker-option ${connected && state.connection.profileId === p.id ? 'live' : state.selectedId === p.id ? 'chosen' : ''}`} onClick={() => choose(p.id)} onContextMenu={(e) => serverMenu(e, p.id)}>
             <CountryFlag code={p.countryCode} />
-            <span className="picker-text"><strong>{place(p)}</strong><small>VLESS · {security(p)} · {transport(p)}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span>
+            <span className="picker-text"><strong>{place(p)}</strong><small>{protocol(p)} · {security(p)} · {transport(p)}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span>
             <span className={`picker-latency ${p.lastTest?.status || ''}`}>{latency(p)}</span>
           </button>)}
           </div>
@@ -226,14 +226,14 @@ export default function App() {
         </div>
       </main>
       <footer className="statsbar">
-        <span>{destination ? `VLESS · ${security(destination)} · ${transport(destination)}` : 'VLESS · Reality'}{connected && state.connection.latency != null ? ` · ${state.connection.latency} мс` : ''}</span>
+        <span>{destination ? `${protocol(destination)} · ${security(destination)} · ${transport(destination)}` : 'VLESS · Reality'}{connected && state.connection.latency != null ? ` · ${state.connection.latency} мс` : ''}</span>
         <span><ArrowDown size={14} />{bytes(connected ? state.stats.down : 0)}</span>
         <span><ArrowUp size={14} />{bytes(connected ? state.stats.up : 0)}</span>
       </footer>
     </> : <SettingsView state={state} bridge={bridge} busy={busy} run={run} back={() => setView('home')} privateText={privateText} addressesVisible={addressesVisible} setAddressesVisible={setAddressesVisible} openImport={openImport} now={now} serverMenu={serverMenu} />}
 
     {toast && <div role="status" className={`toast ${toast.error ? 'error' : ''}`}>{toast.error ? <CircleAlert size={17} /> : <Check size={17} />}<span>{privateText(toast.message)}</span><button aria-label="Закрыть уведомление" onClick={() => setToast(null)}><X size={14} /></button></div>}
-    {importOpen && <div className="modal-backdrop" onPointerDown={(e) => { backdropPress.current = e.target === e.currentTarget; }} onClick={(e) => { if (backdropPress.current && e.target === e.currentTarget && !busy) setImportOpen(false); backdropPress.current = false; }}><section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onKeyDown={modalKeys} onClick={(e) => e.stopPropagation()}><button className="modal-close icon-button" aria-label="Закрыть импорт" disabled={!!busy} onClick={() => setImportOpen(false)}><X size={18} /></button><h2 id="import-title">Добавить подключение</h2><p>Вставьте ссылку подписки, VLESS или Xray JSON.</p><label className="field-label" htmlFor="import-value">Ссылка или конфигурация</label><textarea ref={importRef} id="import-value" value={importText} onChange={(e) => { setImportText(e.target.value); setImportError(''); }} placeholder="https://example.com/subscription" spellCheck={false} aria-invalid={!!importError} aria-describedby={importError ? 'import-error' : 'import-help'} />{importError ? <p id="import-error" className="field-error" role="alert">{privateText(importError)}</p> : <p id="import-help" className="field-hint">Профили сохраняются на этом устройстве в зашифрованном виде.</p>}<div className="modal-actions"><button className="button secondary" disabled={!!busy} onClick={() => run('file', async () => { const r = await bridge!.importFile(); if (r) { setImportOpen(false); setToast({ message: `Добавлено: ${countProfiles(r.count)}` }); } })}><FileInput size={15} />Из файла</button><button className="button primary" disabled={!importText.trim() || !!busy} onClick={importSubmit}>{busy === 'import' && <LoaderCircle size={15} className="spin" />}{busy === 'import' ? 'Добавляем…' : 'Добавить'}</button></div></section></div>}
+    {importOpen && <div className="modal-backdrop" onPointerDown={(e) => { backdropPress.current = e.target === e.currentTarget; }} onClick={(e) => { if (backdropPress.current && e.target === e.currentTarget && !busy) setImportOpen(false); backdropPress.current = false; }}><section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onKeyDown={modalKeys} onClick={(e) => e.stopPropagation()}><button className="modal-close icon-button" aria-label="Закрыть импорт" disabled={!!busy} onClick={() => setImportOpen(false)}><X size={18} /></button><h2 id="import-title">Добавить подключение</h2><p>Вставьте ссылку подписки, VLESS, Hysteria2 или Xray JSON.</p><label className="field-label" htmlFor="import-value">Ссылка или конфигурация</label><textarea ref={importRef} id="import-value" value={importText} onChange={(e) => { setImportText(e.target.value); setImportError(''); }} placeholder="https://example.com/subscription" spellCheck={false} aria-invalid={!!importError} aria-describedby={importError ? 'import-error' : 'import-help'} />{importError ? <p id="import-error" className="field-error" role="alert">{privateText(importError)}</p> : <p id="import-help" className="field-hint">Профили сохраняются на этом устройстве в зашифрованном виде.</p>}<div className="modal-actions"><button className="button secondary" disabled={!!busy} onClick={() => run('file', async () => { const r = await bridge!.importFile(); if (r) { setImportOpen(false); setToast({ message: `Добавлено: ${countProfiles(r.count)}` }); } })}><FileInput size={15} />Из файла</button><button className="button primary" disabled={!importText.trim() || !!busy} onClick={importSubmit}>{busy === 'import' && <LoaderCircle size={15} className="spin" />}{busy === 'import' ? 'Добавляем…' : 'Добавить'}</button></div></section></div>}
   </div>;
 }
 

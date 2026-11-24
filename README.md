@@ -1,6 +1,6 @@
 # JOXY
 
-**English:** JOXY is a minimal VPN client for Windows built on [Xray-core](https://github.com/XTLS/Xray-core). Add a VLESS subscription, pick a location on a dotted Equal Earth world map, press one button, and watch a train of lights run from where you are to the server's country. It supports system proxy, local proxy and TUN mode with a kill switch and DNS leak protection, has a tray panel with a live speed graph, updates itself from GitHub releases, keeps your profiles encrypted with Windows DPAPI and hides server addresses on screen by default. Download the portable `.exe` from [Releases](https://github.com/ChaChaCode/joxy/releases). MIT licensed.
+**English:** JOXY is a minimal VPN client for Windows built on [Xray-core](https://github.com/XTLS/Xray-core). Add a VLESS or Hysteria2 subscription, pick a location on a dotted Equal Earth world map, press one button, and watch a train of lights run from where you are to the server's country. It supports system proxy, local proxy and TUN mode with a kill switch and DNS leak protection, has a tray panel with a live speed graph, updates itself from GitHub releases, keeps your profiles encrypted with Windows DPAPI and hides server addresses on screen by default. Download the portable `.exe` from [Releases](https://github.com/ChaChaCode/joxy/releases). MIT licensed.
 
 ---
 
@@ -23,7 +23,7 @@
 
 ## Как пользоваться
 
-1. Запустите JOXY и вставьте ссылку на подписку (`https://…`), ссылку `vless://` или Xray JSON.
+1. Запустите JOXY и вставьте ссылку на подписку (`https://…`), ссылку `vless://`, `hysteria2://` или Xray JSON.
 2. Слева вверху выберите локацию или оставьте «Автовыбор».
 3. Нажмите кнопку подключения. От синей точки — того места, где вы находитесь, — к стране сервера побегут зелёные огоньки, а после подключения страна загорится зелёным.
 
@@ -44,8 +44,8 @@
 - **Kill switch** в режиме TUN: если VPN пропадёт, интернет блокируется до переподключения. Правила Windows Filtering Platform живут ровно столько, сколько работает JOXY, поэтому оставить систему без интернета он не может.
 - **Защита от утечек DNS и IPv6** в TUN: запросы DNS мимо VPN блокируются, DNS идёт по DNS over HTTPS через VPN.
 - **Переподключение** при потере связи, смене Wi‑Fi/кабеля и после сна; резервный сервер, если основной недоступен.
-- **Протоколы:** VLESS с REALITY или TLS; транспорты Vision, XHTTP (в том числе с несколькими соединениями, XMUX), gRPC, WebSocket, HTTPUpgrade; TLS-фрагментация.
-- **Серверы и подписки:** срок действия, трафик и лимит подписки; задержка и уровень сигнала у каждого сервера; правая кнопка или «⋯» — подключиться, проверить задержку, поделиться ссылкой `vless://`, удалить.
+- **Протоколы:** VLESS с REALITY или TLS; транспорты Vision, XHTTP (в том числе с несколькими соединениями, XMUX), gRPC, WebSocket, HTTPUpgrade; TLS-фрагментация. Hysteria2 (QUIC по UDP) с обфускацией Salamander и закреплением сертификата (`pinSHA256`).
+- **Серверы и подписки:** срок действия, трафик и лимит подписки; задержка и уровень сигнала у каждого сервера; правая кнопка или «⋯» — подключиться, проверить задержку, поделиться ссылкой `vless://` или `hysteria2://`, удалить.
 - **Мини-панель в трее:** правый клик по значку — сервер, кнопка подключения, время, задержка и график скорости; левый клик открывает приложение.
 - **Маршрутизация:** российские сайты (.ru, .su, .рф, .москва) напрямую одним переключателем; свои домены и подсети без VPN.
 - **Приватность:** профили зашифрованы Windows DPAPI; адреса серверов и внешний IP скрыты на экране. JOXY не обращается к GeoIP и аналитике: ваше место на карте берётся из часового пояса Windows, а страна выхода у серверов без страны — из встроенной базы прямо на компьютере.

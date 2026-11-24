@@ -15,7 +15,7 @@ const rank = (p) => p.transport === 'xhttp' ? 0 : p.transport === 'raw' && p.fra
 export function redact(text) {
   return String(text).replace(/\b[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}\b/gi, '[uuid]')
     .replace(/\b[A-Za-z\d_-]{43}\b/g, '[key]').replace(/\b[a-f\d]{32}\b/gi, '[token]')
-    .replace(/(?:vless|json):\/\/\S+/gi, '[profile]').replace(/https?:\/\/[^\s"']+/gi, '[url]');
+    .replace(/(?:vless|json|hysteria2|hy2):\/\/\S+/gi, '[profile]').replace(/https?:\/\/[^\s"']+/gi, '[url]');
 }
 
 export class Controller extends EventEmitter {

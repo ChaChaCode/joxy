@@ -5,7 +5,8 @@ export const elapsed = (since: string | null, now: number) => {
   const s = since ? Math.max(0, Math.floor((now - Date.parse(since)) / 1000)) : 0;
   return [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map((v) => String(v).padStart(2, '0')).join(':');
 };
-export const transport = (p: Profile) => p.transport === 'raw' ? (p.flow ? 'Vision' : 'TCP') : p.transport === 'grpc' ? 'gRPC' : p.transport.toUpperCase();
+export const protocol = (p: Profile) => p.transport === 'hysteria2' ? 'Hysteria2' : 'VLESS';
+export const transport = (p: Profile) => p.transport === 'hysteria2' ? 'QUIC' : p.transport === 'raw' ? (p.flow ? 'Vision' : 'TCP') : p.transport === 'grpc' ? 'gRPC' : p.transport.toUpperCase();
 export const security = (p: Profile) => p.security === 'reality' ? 'Reality' : p.security === 'tls' ? 'TLS' : p.security.toUpperCase();
 export const countProfiles = (n: number) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'профиль' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'профиля' : 'профилей'}`;
 

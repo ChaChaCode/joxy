@@ -51,8 +51,100 @@ export function sanitizeXmux(value) {
   return Object.keys(out).length ? out : undefined;
 }
 
+const hostname = (address) => text(address, 253) && (isIP(address) || /^(?=.{1,253}$)[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?$/.test(address));
+const profileId = (outbound) => createHash('sha256').update(JSON.stringify(outbound)).digest('hex').slice(0, 20);
+
+// Certificate pins as Xray takes them: SHA-256 of the server certificate in hex, colons allowed, several by commas.
+function sanitizePins(value) {
+  if (value == null || value === '') return undefined;
+  const pins = typeof value === 'string' && value.length <= 1024 ? value.split(',').map((v) => v.trim().replace(/:/g, '').toLowerCase()).filter(Boolean) : [];
+  if (!pins.length || pins.length > 4 || !pins.every((p) => /^[a-f\d]{64}$/.test(p))) return fail('Некорректный отпечаток сертификата (pinSHA256).');
+  return pins.join(',');
+}
+
+// QUIC knobs a Hysteria server may hand out: congestion control and, for Brutal, the bandwidth the client may use.
+const bandwidth = (v) => typeof v === 'string' && /^\d{1,6}(\.\d{1,3})?\s?[kmgt]?bps$/i.test(v);
+function sanitizeQuicParams(value) {
+  if (value == null) return undefined;
+  if (!obj(value)) return fail('Некорректные параметры QUIC.');
+  const out = {};
+  for (const [key, v] of Object.entries(value)) {
+    if (key === 'congestion' && ['bbr', 'reno', 'brutal', 'force-brutal'].includes(v)) out.congestion = v;
+    else if (key === 'bbrProfile' && ['conservative', 'standard', 'aggressive'].includes(v)) out.bbrProfile = v;
+    else if ((key === 'brutalUp' || key === 'brutalDown') && bandwidth(v)) out[key] = v;
+    else return fail(`Неподдерживаемый параметр QUIC: ${String(key).slice(0, 40)}.`);
+  }
+  if (out.congestion?.endsWith('brutal') && !out.brutalUp) return fail('Для Brutal нужна скорость отдачи (brutalUp).');
+  return Object.keys(out).length ? out : undefined;
+}
+
+// Hysteria 2: QUIC over UDP with its own password, TLS required. Obfuscation is Salamander, as in Hysteria itself.
+function normalizeHysteria(raw, name) {
+  const s = raw.settings ?? {};
+  const address = s.address, port = Number(s.port);
+  if ((s.version ?? 2) !== 2) return fail('Поддерживается Hysteria версии 2.');
+  if (!hostname(address)) return fail('Некорректный адрес сервера.');
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return fail('Порт должен быть от 1 до 65535.');
+  const input = raw.streamSettings ?? {};
+  if ((input.network ?? 'hysteria') !== 'hysteria') return fail('Hysteria2 работает только со своим транспортом.');
+  const auth = input.hysteriaSettings?.auth;
+  if (!text(auth, 512) || !auth) return fail('Не найден пароль Hysteria2.');
+  if ((input.security ?? 'tls') !== 'tls') return fail('Hysteria2 требует TLS.');
+  const t = input.tlsSettings ?? {};
+  const pins = sanitizePins(t.pinnedPeerCertSha256);
+  // Hysteria servers often run on a self-signed certificate; that is fine only when the client pins it.
+  if (t.allowInsecure && !pins) return fail('Профиль отключает проверку сертификата. Укажите pinSHA256 или исправьте сертификат на сервере.');
+  if (t.serverName != null && t.serverName !== '' && !text(t.serverName, 253)) return fail('Некорректный SNI.');
+  const tlsSettings = { serverName: t.serverName || address, alpn: ['h3'], ...(pins ? { pinnedPeerCertSha256: pins } : {}) };
+  const stream = { network: 'hysteria', security: 'tls', tlsSettings, hysteriaSettings: { version: 2, auth } };
+  const fm = input.finalmask;
+  if (fm != null) {
+    if (!obj(fm) || (fm.tcp && fm.tcp.length) || Object.keys(fm).some((k) => !['tcp', 'udp', 'quicParams'].includes(k))) return fail('Этот вариант FinalMask для Hysteria2 не поддерживается.');
+    const udp = fm.udp ?? [];
+    if (!Array.isArray(udp) || udp.length > 1) return fail('Этот вариант FinalMask для Hysteria2 не поддерживается.');
+    const out = {};
+    if (udp.length) {
+      const [m] = udp;
+      if (m?.type !== 'salamander' || !text(m.settings?.password, 512) || !m.settings.password) return fail('Поддерживается обфускация Salamander с паролем.');
+      out.udp = [{ type: 'salamander', settings: { password: m.settings.password } }];
+    }
+    const quicParams = sanitizeQuicParams(fm.quicParams);
+    if (quicParams) out.quicParams = quicParams;
+    if (Object.keys(out).length) stream.finalmask = out;
+  }
+  const outbound = { protocol: 'hysteria', tag: 'proxy', settings: { version: 2, address, port }, streamSettings: stream };
+  const label = (text(name, 160) && name) || (text(raw.tag, 160) && raw.tag !== 'proxy' ? raw.tag : 'Hysteria2');
+  return { id: profileId(outbound), name: label, countryCode: countryCode(raw.countryCode) || namedCountry(label), address, port, transport: 'hysteria2', security: 'tls', flow: '', fragment: false, outbound };
+}
+
+export function parseHysteria2(link) {
+  if (typeof link !== 'string' || link.length > 4096) return fail('Не удалось прочитать ссылку Hysteria2.');
+  let u;
+  try { u = new URL(link); } catch {
+    return fail(/^(?:hysteria2|hy2):\/\/[^/?#]*:\d+[,-]/i.test(link) ? 'Несколько портов (port hopping) в Hysteria2 пока не поддерживаются.' : 'Не удалось прочитать ссылку Hysteria2.');
+  }
+  if (!['hysteria2:', 'hy2:'].includes(u.protocol)) return fail('Ожидается ссылка hysteria2://.');
+  const q = u.searchParams;
+  let auth;
+  try { auth = decodeURIComponent(u.username) + (u.password ? `:${decodeURIComponent(u.password)}` : ''); } catch { return fail('Повреждён пароль Hysteria2.'); }
+  const obfs = q.get('obfs');
+  if (obfs && obfs !== 'salamander') return fail(`Обфускация ${obfs.slice(0, 40)} не поддерживается.`);
+  const input = {
+    protocol: 'hysteria', settings: { version: 2, address: u.hostname.replace(/^\[|\]$/g, ''), port: Number(u.port || 443) },
+    streamSettings: {
+      network: 'hysteria', security: 'tls', hysteriaSettings: { version: 2, auth },
+      tlsSettings: { serverName: q.get('sni') || '', allowInsecure: q.get('insecure') === '1', pinnedPeerCertSha256: q.get('pinSHA256') || '' },
+      ...(obfs ? { finalmask: { udp: [{ type: 'salamander', settings: { password: q.get('obfs-password') || '' } }] } } : {}),
+    },
+  };
+  let name = '';
+  try { name = decodeURIComponent(u.hash.slice(1)); } catch { name = ''; }
+  return normalizeHysteria(input, name);
+}
+
 export function normalizeOutbound(raw, name = '') {
-  if (!obj(raw) || raw.protocol !== 'vless') return fail('Первая версия JOXY поддерживает профили VLESS.');
+  if (obj(raw) && raw.protocol === 'hysteria') return normalizeHysteria(raw, name);
+  if (!obj(raw) || raw.protocol !== 'vless') return fail('JOXY поддерживает профили VLESS и Hysteria2.');
   const s = raw.settings;
   const v = s?.vnext?.[0];
   const user = v?.users?.[0] ?? s;
@@ -162,9 +254,9 @@ export function parseSubscription(input) {
   if (body.startsWith('{') || body.startsWith('[')) {
     let json; try { json = JSON.parse(body); } catch { return fail('Повреждён JSON подписки.'); }
     for (const c of (Array.isArray(json) ? json : [json])) {
-      if (c?.protocol === 'vless') add(() => normalizeOutbound(c));
+      if (c?.protocol === 'vless' || c?.protocol === 'hysteria') add(() => normalizeOutbound(c));
       else if (Array.isArray(c?.outbounds)) {
-        for (const o of c.outbounds.filter((x) => x.protocol === 'vless')) add(() => normalizeOutbound(o, c.remarks));
+        for (const o of c.outbounds.filter((x) => x.protocol === 'vless' || x.protocol === 'hysteria')) add(() => normalizeOutbound(o, c.remarks));
       } else rejected.push('Этот формат JSON пока не поддерживается.');
     }
   } else {
@@ -172,8 +264,9 @@ export function parseSubscription(input) {
     if (lines.length > 100) return fail('В одной подписке поддерживается до 100 профилей.');
     for (const line of lines) {
       if (line.trim().startsWith('vless://')) add(() => parseVless(line.trim()));
+      else if (/^(?:hysteria2|hy2):\/\//i.test(line.trim())) add(() => parseHysteria2(line.trim()));
       else if (line.trim().startsWith('json://')) add(() => normalizeOutbound(JSON.parse(Buffer.from(new URL(line.trim()).hash.slice(1), 'base64url').toString('utf8'))));
-      else rejected.push('Поддерживаются ссылки VLESS и Xray JSON.');
+      else rejected.push('Поддерживаются ссылки VLESS, Hysteria2 и Xray JSON.');
     }
   }
   if (!profiles.length) return fail(rejected[0] || 'Поддерживаемых профилей не найдено.');
@@ -181,8 +274,9 @@ export function parseSubscription(input) {
   return { profiles, rejected };
 }
 
-// The profile as a standard vless:// link, for other clients: parseVless reads it back to the same profile.
+// The profile as a standard vless:// or hysteria2:// link, for other clients: parsing it gives back the same profile.
 export function shareLink(profile) {
+  if (profile.outbound.protocol === 'hysteria') return shareHysteria2(profile);
   const { settings: { vnext: [{ address, port, users: [user] }] }, streamSettings: s } = profile.outbound;
   const q = new URLSearchParams({ encryption: user.encryption || 'none' });
   if (user.flow) q.set('flow', user.flow);
@@ -203,6 +297,18 @@ export function shareLink(profile) {
   return `vless://${encodeURIComponent(user.id)}@${host}:${port}?${q.toString().replace(/\+/g, '%20')}#${encodeURIComponent(profile.name)}`;
 }
 
+function shareHysteria2(profile) {
+  const { settings: { address, port }, streamSettings: s } = profile.outbound;
+  const q = new URLSearchParams();
+  if (s.tlsSettings.serverName && s.tlsSettings.serverName !== address) q.set('sni', s.tlsSettings.serverName);
+  const salamander = s.finalmask?.udp?.[0];
+  if (salamander) { q.set('obfs', 'salamander'); q.set('obfs-password', salamander.settings.password); }
+  if (s.tlsSettings.pinnedPeerCertSha256) { q.set('insecure', '1'); q.set('pinSHA256', s.tlsSettings.pinnedPeerCertSha256); }
+  const host = isIP(address) === 6 ? `[${address}]` : address;
+  const query = q.toString().replace(/\+/g, '%20');
+  return `hysteria2://${encodeURIComponent(s.hysteriaSettings.auth)}@${host}:${port}/${query ? `?${query}` : ''}#${encodeURIComponent(profile.name)}`;
+}
+
 export function publicProfile(profile) {
   const { outbound, ...safe } = profile;
   return safe;
@@ -212,7 +318,7 @@ export function buildConfig(profile, ports, networkInterface = '', options = {})
   const settings = normalizeSettings(options);
   const outbound = structuredClone(profile.outbound);
   if (networkInterface) outbound.streamSettings.sockopt = { interface: networkInterface };
-  if (options.resolvedServer) outbound.settings.vnext[0].address = options.resolvedServer;
+  if (options.resolvedServer) (outbound.settings.vnext?.[0] ?? outbound.settings).address = options.resolvedServer;
   const config = {
     log: { loglevel: 'warning' },
     inbounds: [

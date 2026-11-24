@@ -1,7 +1,7 @@
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import { ArrowsDownUp, CellSignal, Calendar, Check, ChevronDown, DotsThree, ExternalLink, InfinityIcon, LifeBuoy, RefreshCw, Stack } from './icons';
 import { CountryFlag } from './CountryFlag';
-import { transport } from './format';
+import { protocol, transport } from './format';
 import type { Profile, Source } from './types';
 
 const formatBytes = (n: number) => {
@@ -53,7 +53,7 @@ export function ServerCard({ profile: p, active, name, addressesVisible, onMenu 
   const t = p.lastTest;
   return <div className={`sub-server ${active ? 'active' : ''}`} onContextMenu={onMenu}>
     <span className="server-tile"><CountryFlag code={p.countryCode} /></span>
-    <span className="server-text"><strong>{name}</strong><small>VLESS · {transport(p)} · {p.security.toUpperCase()}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span>
+    <span className="server-text"><strong>{name}</strong><small>{protocol(p)} · {transport(p)} · {p.security.toUpperCase()}{addressesVisible ? ` · ${p.address}:${p.port}` : ''}</small></span>
     <Signal profile={p} />
     <em className={`latency-pill ${t?.status || ''}`}>{t?.status === 'ok' ? `${t.latency} мс` : t?.status === 'error' ? 'Недоступен' : t?.status === 'checking' ? 'Проверка…' : 'Не проверен'}</em>
     {active && <span className="active-chip"><Check size={13} />Активен</span>}

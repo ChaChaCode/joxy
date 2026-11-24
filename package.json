@@ -1,7 +1,7 @@
 {
   "name": "joxy",
   "productName": "JOXY",
-  "version": "0.6.27",
+  "version": "0.6.29",
   "private": true,
   "description": "An independent Windows proxy client powered by Xray",
   "author": "ChaChaCode",
@@ -51,7 +51,7 @@
     "productName": "JOXY",
     "artifactName": "JOXY-${version}-Windows-x64.${ext}",
     "directories": {
-      "output": "release-joxy-0.6.27"
+      "output": "release-joxy-0.6.29"
     },
     "files": [
       "dist/**/*",
@@ -94,6 +94,10 @@
       {
         "from": "resources/geo/ip-country.bin",
         "to": "geo/ip-country.bin"
+      },
+      {
+        "from": "resources/windows-update.ps1",
+        "to": "windows-update.ps1"
       }
     ],
     "win": {

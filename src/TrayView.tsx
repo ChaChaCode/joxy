@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AutoTile, CountryFlag, countryName } from './CountryFlag';
 import { ArrowDown, ArrowUp, LoaderCircle, Power } from './icons';
-import { bytes, elapsed, security, transport } from './format';
+import { bytes, elapsed, protocol, security, transport } from './format';
 import type { State } from './types';
 
 // Download as a filled green area and upload as a thin line, on one scale, over the last samples (every two seconds).
@@ -57,7 +57,7 @@ export function TrayView() {
     </header>
     <div className="tray-server">
       {profile ? <CountryFlag code={code} /> : <AutoTile />}
-      <span><strong>{place}</strong><small>{profile ? `VLESS · ${security(profile)} · ${transport(profile)}` : 'Лучший доступный сервер'}</small></span>
+      <span><strong>{place}</strong><small>{profile ? `${protocol(profile)} · ${security(profile)} · ${transport(profile)}` : 'Лучший доступный сервер'}</small></span>
     </div>
     <div className="tray-main">
       <button className={`power ${connected ? 'on' : ''}`} aria-label={connected ? 'Отключиться' : connecting ? 'Подключение…' : 'Подключиться'} aria-pressed={connected}

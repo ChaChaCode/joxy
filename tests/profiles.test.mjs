@@ -118,3 +118,50 @@ test('XHTTP keeps XMUX from a link or a config, shares it, and rejects what it c
   for (const bad of [{ evil: 1 }, { maxConnections: -1 }, { maxConnections: '9-2' }, { maxConnections: 'x' }, { maxConnections: 2, maxConcurrency: 4 }]) assert.throws(() => sanitizeXmux(bad), /XMUX/, JSON.stringify(bad));
   assert.throws(() => parseSubscription(link.replace(/extra=[^#]+/, 'extra=%7Bbroken')), /XHTTP extra/);
 });
+
+test('Hysteria2 links import as Xray hysteria outbounds with Salamander and share back', async () => {
+  const { shareLink, parseHysteria2 } = await import('../electron/profiles.mjs');
+  const pin = 'ab'.repeat(32);
+  const links = [
+    'hysteria2://s3cret-pass@192.0.2.30:443/?sni=example.com&obfs=salamander&obfs-password=0bfs-pw#Hy2%20Amsterdam',
+    'hy2://user:pa%40ss@example.com:8443/?insecure=1&pinSHA256=' + pin.match(/../g).join(':') + '#Pinned',
+    'hysteria2://only-pass@[2001:db8::2]#IPv6',
+  ];
+  for (const l of links) {
+    const [p] = parseSubscription(l).profiles;
+    assert.equal(p.transport, 'hysteria2'); assert.equal(p.outbound.protocol, 'hysteria');
+    const shared = shareLink(p);
+    assert.match(shared, /^hysteria2:\/\//);
+    const [back] = parseSubscription(shared).profiles;
+    assert.equal(back.id, p.id, shared); assert.equal(back.name, p.name);
+  }
+  const p = parseHysteria2(links[0]);
+  assert.deepEqual(p.outbound.settings, { version: 2, address: '192.0.2.30', port: 443 });
+  assert.deepEqual(p.outbound.streamSettings, { network: 'hysteria', security: 'tls', tlsSettings: { serverName: 'example.com', alpn: ['h3'] }, hysteriaSettings: { version: 2, auth: 's3cret-pass' }, finalmask: { udp: [{ type: 'salamander', settings: { password: '0bfs-pw' } }] } });
+  assert.equal(parseHysteria2(links[1]).outbound.streamSettings.hysteriaSettings.auth, 'user:pa@ss');
+  assert.equal(parseHysteria2(links[1]).outbound.streamSettings.tlsSettings.pinnedPeerCertSha256, pin);
+  assert.equal(parseHysteria2(links[2]).port, 443);
+  // No secret reaches the renderer or the log.
+  assert.ok(!JSON.stringify(publicProfile(p)).includes('s3cret')); assert.ok(!redact(`bad ${links[0]}`).includes('s3cret'));
+});
+
+test('Hysteria2 refuses unverified TLS, unknown obfuscation, port hopping and missing passwords', async () => {
+  const { parseHysteria2 } = await import('../electron/profiles.mjs');
+  assert.throws(() => parseHysteria2('hysteria2://pw@192.0.2.30:443/?insecure=1'), /сертификата/);
+  assert.throws(() => parseHysteria2('hysteria2://pw@192.0.2.30:443/?insecure=1&pinSHA256=abcd'), /pinSHA256/);
+  assert.throws(() => parseHysteria2('hysteria2://pw@192.0.2.30:443/?obfs=gecko'), /не поддерживается/);
+  assert.throws(() => parseHysteria2('hysteria2://pw@192.0.2.30:443,20000-30000/'), /port hopping/);
+  assert.throws(() => parseHysteria2('hysteria2://@192.0.2.30:443/'), /пароль/);
+  assert.throws(() => parseHysteria2('hysteria2://pw@192.0.2.30:443/?obfs=salamander'), /Salamander/);
+  assert.throws(() => normalizeOutbound({ protocol: 'hysteria', settings: { version: 2, address: '192.0.2.30', port: 443 }, streamSettings: { network: 'hysteria', security: 'tls', hysteriaSettings: { auth: 'pw' }, finalmask: { quicParams: { congestion: 'brutal' } } } }), /brutalUp/);
+});
+
+test('Hysteria2 from an Xray JSON subscription keeps QUIC params; runtime config points at the resolved server', () => {
+  const json = JSON.stringify([{ remarks: 'Hy2 JSON', outbounds: [{ protocol: 'hysteria', tag: 'proxy', settings: { version: 2, address: 'example.com', port: 443 }, streamSettings: { network: 'hysteria', security: 'tls', tlsSettings: { serverName: 'example.com' }, hysteriaSettings: { version: 2, auth: 'pw' }, finalmask: { quicParams: { congestion: 'bbr' } } } }, { protocol: 'freedom', tag: 'direct' }] }]);
+  const [p] = parseSubscription(json).profiles;
+  assert.equal(p.name, 'Hy2 JSON'); assert.deepEqual(p.outbound.streamSettings.finalmask, { quicParams: { congestion: 'bbr' } });
+  const config = buildConfig(p, { http: 10808, socks: 10809 }, 'Ethernet', { mode: 'tun', resolvedServer: '192.0.2.31' });
+  assert.equal(config.outbounds[0].settings.address, '192.0.2.31');
+  assert.deepEqual(config.outbounds[0].streamSettings.sockopt, { interface: 'Ethernet' });
+  assert.equal(p.outbound.settings.address, 'example.com');
+});

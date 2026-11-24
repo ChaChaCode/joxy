@@ -152,12 +152,25 @@ function toggleTrayPanel() {
   trayWindow.show(); trayWindow.focus();
 }
 
-// The update replaces this portable file's folder copy, or lands in Downloads when JOXY runs unpacked. The new build
-// starts once this process has ended (--wait-for-parent) and reconnects if JOXY was connected.
+// A portable JOXY is updated in place: the new build replaces the very .exe that runs, under its name, so shortcuts
+// and pins open the new version; resources/windows-update.ps1 swaps the files once JOXY has quit and starts it. Run
+// unpacked (a development build), the new portable file lands in Downloads instead and starts from there. Either way
+// it reconnects if JOXY was connected.
 async function installUpdate() {
   if (controller.busy || controller.checking) throw new Error('Дождитесь завершения подключения или проверки.');
-  const file = await updater.download(process.env.PORTABLE_EXECUTABLE_DIR || app.getPath('downloads'));
   const reconnect = controller.connection.phase === 'connected';
+  const portable = process.env.PORTABLE_EXECUTABLE_FILE;
+  if (portable && /\.exe$/i.test(portable)) {
+    const file = await updater.download(path.join(app.getPath('temp'), 'joxy-update'));
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(resources, 'windows-update.ps1'),
+      '-ParentPid', String(process.pid), '-Source', file, '-Target', portable, ...(reconnect ? ['-Reconnect'] : [])], { detached: true, stdio: 'ignore', windowsHide: true });
+    await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', (e) => reject(new Error(`Не удалось запустить обновление: ${e.message}`))); });
+    child.unref();
+    controller.log('info', `Обновление скачано. JOXY заменит ${path.basename(portable)} и перезапустится.`);
+    setImmediate(() => { quitting = true; app.quit(); });
+    return;
+  }
+  const file = await updater.download(app.getPath('downloads'));
   const child = spawn(file, ['--wait-for-parent', String(process.pid), ...(reconnect ? ['--reconnect'] : [])], { cwd: path.dirname(file), detached: true, stdio: 'ignore' });
   await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', (e) => reject(new Error(`Не удалось запустить новую версию: ${e.message}`))); });
   child.unref();
